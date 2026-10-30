@@ -6,15 +6,35 @@ trung tâm** nhưng **hoạt động được hoàn toàn ngoại tuyến (offli
 Ưu tiên thiết kế theo đặc tả: **tìm kiếm cực nhanh → cập nhật tức thì → chống trùng dữ liệu →
 import/export Excel → đồng bộ Google Sheets**, giao diện đẹp xếp sau.
 
+Ngoài ra phần mềm còn tách **3 môi trường độc lập** (`dev` / `staging` / `prod`),
+mỗi env có database, log và cấu hình **riêng hoàn toàn** — thử nghiệm thoải mái
+mà không bao giờ ảnh hưởng dữ liệu thật (xem mục 1.3).
+
+---
+
+## MỤC LỤC
+
+| Mục | Nội dung |
+|---|---|
+| [1. Cài đặt trên Windows](#1-cài-đặt-trên-windows) | Cài từ nguồn, **1.3 môi trường DEV/STAGING/PROD**, cấu trúc thư mục |
+| [2. Cấu hình Google API](#2-cấu-hình-google-api-chi-tiết-có-thể-làm-sau) | 4 bước, các sheet quản lý, giới hạn quota |
+| [3. Phím tắt](#3-phím-tắt) | Bàn phím tắt |
+| [4. Dữ liệu mẫu kiểm thử](#4-dữ-liệu-mẫu-kiểm-thử) | 2 file Excel mẫu |
+| [5. Bộ kiểm thử](#5-bộ-kiểm-thử-chạy-được-ngay-không-cần-mạng) | 18 backend + 8 giao diện + selftest + 10 tình huống bắt buộc |
+| [6. Nguyên tắc quan trọng](#6-nguyên-tắc-quan-trọng-của-phần-mềm) | Offline-first, chống trùng, đồng bộ an toàn |
+| [7. Xử lý sự cố](#7-xử-lý-sự-cố-thường-gặp) | Bảng lỗi thường gặp |
+| [8. Build bản Windows (.exe)](#8-build-bản-windows-exe-cho-người-dùng-cuối) | Đóng gói, chạy trên máy khác, selftest |
+| [9. Lịch sử thay đổi](#9-lịch-sử-thay-đổi) | Các lần cập nhật |
+
 ---
 
 ## 1. Cài đặt trên Windows
 
-### Yêu cầu
+### 1.1. Yêu cầu
 - Windows 10/11, Python **3.10 – 3.12** (đã test trên Python 3.12 64-bit).
 - Không cần cài thêm phần mềm nào khác (SQLite có sẵn trong Python).
 
-### Các bước
+### 1.2. Các bước
 
 ```powershell
 # 1) Vào thư mục dự án
@@ -32,12 +52,16 @@ python main.py
 
 # hoặc chọn môi trường:  dev | staging | prod
 python main.py --env staging
+
+# hoặc dùng start.bat (tự tạo venv + cài thư viện nếu thiếu, rồi chạy):
+start.bat                    # dev
+start.bat --env staging      # staging
 ```
 
 > **Lưu ý quan trọng:** Dự án **không dùng pandas/numpy** vì môi trường Windows có chính sách
 > AppControl chặn DLL của numpy. Excel được đọc/ghi trực tiếp bằng `openpyxl` → nhẹ và nhanh hơn.
 
-### Môi trường DEV / STAGING / PROD
+### 1.3. Môi trường DEV / STAGING / PROD
 
 Phần mềm tách **3 môi trường hoàn toàn độc lập** — mỗi môi trường có database,
 log và file cấu hình **riêng**, không ảnh hưởng lẫn nhau:
@@ -70,7 +94,7 @@ python main.py --env staging
 > chuyển chúng vào env mặc định** ở lần chạy đầu tiên (kèm file `-wal` của SQLite).
 > Muốn env khác dùng dữ liệu đó thì tự copy `data/<env>/kho_phong.db`.
 
-### File cấu trúc
+### 1.4. File cấu trúc
 
 ```
 toolautomation/
@@ -102,6 +126,7 @@ toolautomation/
 │   └── prod/   kho_phong.db · logs/ · cache/
 ├── config/               ← settings_<env>.json + service_account.json (KHÔNG commit)
 ├── samples/              ← dữ liệu mẫu kiểm thử
+├── start.bat             ← tạo venv + cài thư viện + chạy (hỗ trợ --env)
 ├── build.bat             ← build bản Windows (.exe) + selftest
 ├── KhoPhongCanHo.spec    ← cấu hình PyInstaller
 └── tests/                ← bộ kiểm thử (18 + 8 tình huống giao diện)
@@ -112,7 +137,8 @@ toolautomation/
 ## 2. Cấu hình Google API (chi tiết, có thể làm sau)
 
 > **Chưa có credentials?** Không sao — phần mềm chạy **hoàn chỉnh ngoại tuyến**: dữ liệu nằm trong
-> `data/kho_phong.db`. Khi nào có Google API thì bật sau, mọi thay đổi không bị mất.
+> `data/<env>/kho_phong.db` (ví dụ `data/dev/kho_phong.db`). Khi nào có Google API thì bật sau,
+> mọi thay đổi không bị mất.
 
 ### Bước 1 — Tạo project & bật API
 1. Vào **https://console.cloud.google.com** → **Create project** (ví dụ: `kho-phong`).
@@ -208,7 +234,20 @@ python tests\ui_smoke.py
 # kỳ vọng: UI: 8/8 PASS
 ```
 
-### 5.3. 10 tình huống kiểm thử bắt buộc (đối chiếu với đặc tả)
+### 5.3. Selftest — kiểm tra nhanh 12 đầu việc (có ở cả nguồn lẫn bản build)
+
+```powershell
+python main.py --selftest                  # chạy từ nguồn
+# hoặc trên bản build:
+dist\KhoPhongCanHo\KhoPhongCanHo.exe --selftest --env staging
+```
+
+Chạy nền (không hiện cửa sổ), dùng **DB tạm** nên không đụng dữ liệu thật. Tự làm:
+nhập Excel mẫu → mở Dashboard/Tòa nhà/Bảng phòng → tìm kiếm không dấu → xuất Excel →
+kiểm tra env được tách riêng. Exit code `0` = tốt, `1` = lỗi; chi tiết ghi vào
+`data/<env>/selftest_result.txt`. Đây là bước cuối của `build.bat` (build fail nếu selftest fail).
+
+### 5.4. 10 tình huống kiểm thử bắt buộc (đối chiếu với đặc tả)
 
 | # | Tình huống | Cách kiểm | Kỳ vọng |
 |---|---|---|---|
@@ -254,8 +293,12 @@ nhân bản phòng, panel chi tiết + lịch sử, popup tìm kiếm toàn cụ
 | Chữ Việt hiện thành `???` trong console | `$env:PYTHONIOENCODING='utf-8'` trước khi chạy |
 | “Chưa cấu hình Google” | Vào **Cài đặt → tab ☁️ Google Sheets**, làm đủ 4 bước ở mục 2 |
 | Lỗi `429 Quota exceeded` | Giảm `sync_interval_sec`, tăng `batch_size` — phần mềm đã tự retry |
-| Muốn reset dữ liệu | Đóng chương trình, đổi tên `data\kho_phong.db` (hoặc xóa), chạy lại và nhập Excel |
-| Xem log | `data\logs\app.log`, `data\logs\sync.log` |
+| **Dữ liệu “biến mất” / không thấy phòng đã nhập** | **Kiểm tra huy hiệu `[DEV]`/`[STAGING]`/`[PROD]`** — rất có thể bạn đang ở env khác; mỗi env có `data/<env>/kho_phong.db` riêng |
+| **Muốn dồn dữ liệu 2 env vào 1 env** | Đóng app, copy `data/<env_tu>/kho_phong.db` đè lên `data/<env_dich>/kho_phong.db`, mở lại |
+| Muốn reset dữ liệu của 1 env | Đóng chương trình, đổi tên (hoặc xóa) `data\<env>\kho_phong.db`, chạy lại và nhập Excel |
+| Xem log | `data\<env>\logs\app.log`, `data\<env>\logs\sync.log` (vd `data\prod\logs\app.log`) |
+| Bản build `.exe` chạy rồi tắt ngay | Chạy thử `KhoPhongCanHo.exe --selftest` rồi xem `data\<env>\selftest_result.txt`; hoặc `ChayUngDung.bat` để hiện thông báo lỗi |
+| App báo “không ghi được dữ liệu” | Kiểm tra quyền ghi thư mục chứa `.exe` (nên để ở `C:\` hoặc Desktop, **không** để trong `Program Files`) |
 
 ---
 
@@ -271,7 +314,12 @@ build.bat
 
 Script tự làm đủ 4 bước: cài PyInstaller → đóng gói (`KhoPhongCanHo.spec`) →
 chép tài liệu + dữ liệu mẫu vào bản build → chạy `--selftest` tự kiểm tra
-(10 kiểm thử: nhập Excel, mở các trang, tìm kiếm, xuất Excel). Selftest fail ⇒ hủy build.
+(**12 kiểm tra**: nhập Excel, mở các trang, tìm kiếm, xuất Excel, xác minh env).
+Selftest fail ⇒ hủy build.
+
+> **Ghi chú:** PyInstaller **không nằm trong `requirements.txt`** (chỉ cần khi build).
+> `build.bat` tự cài/nâng cấp nó. Bản build là **onedir** (một thư mục) thay vì onedir
+> (`--onefile`) vì PySide6 giải nén ~200 MB mỗi lần mở → mở chậm 8–15s; onedir mở ~1–2s.
 
 Kết quả: `dist\KhoPhongCanHo\` (~235 MB), cấu trúc:
 
@@ -293,19 +341,26 @@ dist\KhoPhongCanHo\
 ```
 
 Mỗi môi trường có database và cấu hình **riêng hoàn toàn** — thử trên staging
-không ảnh hưởng dữ liệu prod. Xem mục **1. Môi trường DEV / STAGING / PROD**.
+không ảnh hưởng dữ liệu prod. Xem mục **1.3. Môi trường DEV / STAGING / PROD**.
 
 ### 8.2. Chạy trên máy khác
 
 1. Copy **cả thư mục** `dist\KhoPhongCanHo\` sang máy đích (USB, zip…).
    Không copy riêng `.exe` — thư mục `_internal` chứa thư viện Qt/Python đi kèm.
-2. Bấm đúp `KhoPhongCanHo.exe` (hoặc `ChayUngDung.bat`).
-3. Lần đầu chạy: app tự tạo `data\` + `config\` cạnh file `.exe` và mời nhập dữ liệu Excel.
+2. Chọn cách chạy (mỗi cách là một env, **data + config riêng biệt**):
+   - `ChayUngDung.bat` → **PROD** (dữ liệu thật; cũng là mặc định khi bấm đúp `.exe`)
+   - `ChayStaging.bat` → **STAGING** (thử nghiệm)
+   - `ChayDev.bat` → **DEV** (phát triển)
+   - hoặc tự chạy: `KhoPhongCanHo.exe --env prod|staging|dev`
+3. Lần đầu chạy, app tự tạo `data\<env>\` + `config\` cạnh file `.exe` và mời nhập dữ liệu Excel.
+
+> **Lưu ý quyền ghi:** để thư mục ở vị trí được phép ghi (Desktop, `C:\Apps`…).
+> **Không** để trong `Program Files` — Windows chặn ghi và app sẽ không tạo được database.
 
 ### 8.3. Gỡ / dọn bản build
 
 Xóa cả thư mục `dist\KhoPhongCanHo\` là đủ — không ghi gì vào registry hay AppData.
-Muốn giữ dữ liệu thì backup thư mục `data\` trước khi xóa.
+Muốn giữ dữ liệu thì backup thư mục `data\` (chứa `dev\`, `staging\`, `prod\`) trước khi xóa.
 
 ### 8.4. Chế độ --selftest
 
@@ -313,6 +368,17 @@ Muốn giữ dữ liệu thì backup thư mục `data\` trước khi xóa.
 dist\KhoPhongCanHo\KhoPhongCanHo.exe --selftest --env staging
 ```
 
-Chạy nền (không hiện cửa sổ), tự nhập dữ liệu mẫu → mở 3 trang → tìm kiếm → xuất Excel.
-Exit code `0` = tốt, `1` = lỗi; chi tiết ghi vào `data\<env>\selftest_result.txt`.
+Chạy nền (không hiện cửa sổ), tự nhập dữ liệu mẫu → mở 3 trang → tìm kiếm → xuất Excel →
+xác minh env tách riêng (**12 kiểm tra**). Exit code `0` = tốt, `1` = lỗi;
+chi tiết ghi vào `data\<env>\selftest_result.txt`.
 `build.bat` tự chạy selftest ở env **staging** và hủy build nếu fail.
+
+---
+
+## 9. Lịch sử thay đổi
+
+| Ngày | Thay đổi |
+|---|---|
+| 2026-10-30 | **Tách 3 môi trường DEV / STAGING / PROD.** Mỗi env có `data/<env>/kho_phong.db`, `logs/`, `cache/` và `config/settings_<env>.json` riêng. Chọn qua `--env dev\|staging\|prod` (ưu tiên) hoặc biến `KHO_APP_ENV`; mặc định `dev` khi chạy nguồn, `prod` khi chạy `.exe`. Thêm huy hiệu env ở thanh trạng thái + tiêu đề; tab Cài đặt hiện env + đường dẫn. Tự migrate dữ liệu cũ (`data/kho_phong.db`, `config/settings.json`) vào env mặc định ở lần chạy đầu. |
+| 2026-10-30 | **Build bản Windows (.exe).** Thêm `KhoPhongCanHo.spec` (PyInstaller, onedir) + `build.bat` (đóng gói → chép tài liệu/mẫu → selftest tự kiểm tra, fail thì hủy build). `config.py` aware `sys.frozen`: data/config ghi được cạnh file `.exe`. Thêm chế độ `--selftest` (12 kiểm tra, chạy nền, ghi `selftest_result.txt`). Bản build gồm `KhoPhongCanHo.exe` + `ChayUngDung.bat` / `ChayStaging.bat` / `ChayDev.bat`. |
+| 2026-10-30 | **Bản đầu tiên.** Ứng dụng PySide6 + SQLite offline-first: Dashboard 9 KPI, lưới thẻ tòa nhà, bảng phòng ảo hoá, form 8 nhóm, tìm kiếm không dấu + debounce + chỉ mục (< 5ms), chống trùng 5 lớp, import Excel 5 loại có xem trước, xuất Excel giữ công thức COUNTIF/COUNTIFS, hàng đợi đồng bộ Google Sheets (khóa lease `_Lock`, content hash, `App_ID_Map`), khóa ghi `BEGIN IMMEDIATE`. Kèm 18 test backend + 8 test giao diện. |

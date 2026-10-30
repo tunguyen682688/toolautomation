@@ -1,186 +1,301 @@
 # -*- coding: utf-8 -*-
-"""theme.py - Chủ đề giao diện sáng, sạch, chuyên nghiệp (QSS) + tiện ích màu sắc."""
+"""theme.py - Chủ đề giao diện hiện đại, sang trọng (hệ thống quản lý bậc nhất).
+Màu sắc: slate/indigo, gradient nhẹ, shadow, border radius lớn, typography sạch.
+"""
 from __future__ import annotations
 
 from models import RoomStatus
 
-# Bảng màu chung
-C_BG = "#F4F6FB"
-C_CARD = "#FFFFFF"
-C_BORDER = "#E4E8F0"
-C_TEXT = "#0F172A"
-C_TEXT2 = "#64748B"
-C_ACCENT = "#2563EB"
-C_ACCENT_HOVER = "#1D4ED8"
-C_OK = "#16A34A"
-C_WARN = "#EAB308"
-C_ORANGE = "#F97316"
-C_DANGER = "#DC2626"
+# ------------------------------------------------------------------ BẢNG MÀU HỆ THỐNG
+C_BG = "#F3F4F6"            # nền tổng thể (xám rất nhạt)
+C_CARD = "#FFFFFF"          # nền thẻ/card trắng
+C_BORDER = "#E5E7EB"        # viền nhẹ
+C_BORDER_SOFT = "#F3F4F6"   # viền mờ hơn
+C_TEXT = "#111827"          # chữ chính (đen xám đậm)
+C_TEXT2 = "#6B7280"         # chữ phụ
+C_TEXT3 = "#9CA3AF"         # chữ nhạt
+C_ACCENT = "#2563EB"        # xanh dương chính
+C_ACCENT_HOVER = "#1D4ED8"  # xanh dương hover
+C_ACCENT_LIGHT = "#EFF6FF"  # nền xanh dương nhạt
+C_OK = "#15803D"            # xanh lá
+C_OK_LIGHT = "#DCFCE7"
+C_WARN = "#D97706"          # vàng cam
+C_WARN_LIGHT = "#FEF3C7"
+C_ORANGE = "#EA580C"
+C_DANGER = "#DC2626"        # đỏ
+C_DANGER_LIGHT = "#FEE2E2"
 C_MUTED = "#6B7280"
+
+# Màu nền từng trạng thái phòng (mild pastel)
+STATUS_BG = {
+    "new": "#EFF6FF",           # xanh dương nhạt
+    "unsurveyed": "#E0F2FE",    # xanh cyanh nhạt
+    "surveyed": "#CCFBF1",      # xanh ngọc nhạt
+    "vacant": "#DCFCE7",        # xanh lá nhạt
+    "soon_vacant": "#FEF9C3",   # vàng nhạt
+    "holding": "#FFEDD5",       # cam nhạt
+    "deposit": "#FFEDD5",
+    "rented": "#FEE2E2",        # đỏ nhạt
+    "suspended": "#F3F4F6",     # xám nhạt
+    "maintenance": "#F3F4F6",
+}
 
 APP_QSS = f"""
 /* ============================ TỔNG THỂ ============================ */
 QWidget {{
     background: {C_BG};
     color: {C_TEXT};
-    font-family: "Segoe UI", "Inter", "Arial", sans-serif;
+    font-family: "Segoe UI", "Inter", "SF Pro Text", "Arial", sans-serif;
     font-size: 13px;
+    font-weight: 500;
 }}
 QMainWindow, QDialog {{ background: {C_BG}; }}
 QToolTip {{
-    background: #0F172A; color: #FFFFFF; border: none; padding: 6px 8px;
+    background: {C_TEXT}; color: #FFFFFF; border: none; padding: 6px 8px;
     border-radius: 6px; font-size: 12px;
 }}
 
-/* ============================ SIDEBAR ============================ */
+/* ============================ SIDEBAR (kéo dài, hiện đại) ============================ */
 #Sidebar {{
-    background: {C_CARD};
+    background: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {C_CARD}, stop:1 {C_BG}
+    );
     border-right: 1px solid {C_BORDER};
 }}
-#AppTitle {{ font-size: 17px; font-weight: 800; color: {C_ACCENT}; letter-spacing: .4px; }}
-#AppSubtitle {{ font-size: 11px; color: {C_TEXT2}; }}
-#NavButton {{
-    background: transparent; border: none; border-radius: 9px;
-    padding: 11px 14px; text-align: left; font-size: 13.5px; font-weight: 600;
-    color: #334155;
+#AppTitle {{
+    font-size: 17px; font-weight: 800; color: {C_ACCENT};
+    letter-spacing: -0.5px;
 }}
-#NavButton:hover {{ background: #EEF2FF; color: {C_ACCENT}; }}
-#NavButton[active="true"] {{ background: #E8EEFF; color: {C_ACCENT}; }}
+#AppSubtitle {{
+    font-size: 11px; color: {C_TEXT2};
+    font-weight: 400;
+}}
+#NavButton {{
+    background: transparent; border: none; border-radius: 10px;
+    padding: 12px 16px; text-align: left; font-size: 14px; font-weight: 600;
+    color: {C_TEXT2};
+}}
+#NavButton:hover {{ background: {C_ACCENT_LIGHT}; color: {C_ACCENT}; }}
+#NavButton[active="true"] {{
+    background: {C_ACCENT_LIGHT}; color: {C_ACCENT};
+    border-left: 4px solid {C_ACCENT};
+    padding-left: 12px;
+}}
 #NavIcon {{ font-size: 16px; }}
 
-/* ============================ THANH TRÊN ============================ */
-#TopBar {{ background: {C_CARD}; border-bottom: 1px solid {C_BORDER}; }}
+/* ============================ HEADER / THANH TRÊN ============================ */
+#TopBar {{
+    background: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 {C_ACCENT}, stop:1 {C_ACCENT_HOVER}
+    );
+    border: none;
+    color: #FFFFFF;
+}}
+#TopBar QLabel {{ color: #FFFFFF; background: transparent; }}
+#PageHeaderTitle {{
+    font-size: 20px; font-weight: 800; color: #FFFFFF; background: transparent;
+    letter-spacing: -0.5px;
+}}
+#PageHeaderSubtitle {{
+    font-size: 12.5px; color: rgba(255,255,255,0.85); background: transparent;
+    font-weight: 500;
+}}
 #SearchBox {{
-    background: #F1F5F9; border: 1.5px solid {C_BORDER}; border-radius: 11px;
-    padding: 11px 14px 11px 38px; font-size: 15px; selection-background-color: {C_ACCENT};
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 10px; padding: 10px 14px 10px 36px; font-size: 14px;
+    color: #FFFFFF; selection-background-color: {C_ACCENT};
 }}
-#SearchBox:focus {{ background: #FFFFFF; border: 1.5px solid {C_ACCENT}; }}
-#SearchIcon {{ color: {C_TEXT2}; font-size: 16px; background: transparent; border: none; }}
-#SearchHint {{ color: #94A3B8; font-size: 11.5px; }}
+#SearchBox:focus {{ background: rgba(255,255,255,0.25); border: 1px solid #FFFFFF; }}
+#SearchBox::placeholder {{ color: rgba(255,255,255,0.7); }}
+#SearchIcon {{ color: rgba(255,255,255,0.8); font-size: 16px; background: transparent; border: none; }}
+#SearchHint {{ color: rgba(255,255,255,0.65); font-size: 11.5px; }}
 
-/* ============================ NÚT ============================ */
+/* ============================ NÚT (HỆ THỐNG) ============================ */
 QPushButton {{
-    background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 8px;
-    padding: 7px 14px; font-weight: 600; color: #1E293B;
+    background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 10px;
+    padding: 8px 16px; font-weight: 600; color: {C_TEXT};
+    font-size: 13px;
 }}
-QPushButton:hover {{ background: #F8FAFC; border-color: #CBD5E1; }}
-QPushButton:pressed {{ background: #EEF2F7; }}
-QPushButton:disabled {{ color: #94A3B8; background: #F1F5F9; }}
+QPushButton:hover {{ background: {C_BG}; border-color: {C_BORDER}; }}
+QPushButton:pressed {{ background: {C_BORDER_SOFT}; }}
+QPushButton:disabled {{ color: {C_TEXT3}; background: {C_BORDER_SOFT}; }}
 QPushButton#Primary {{
-    background: {C_ACCENT}; color: white; border: none; border-radius: 8px; padding: 8px 16px;
+    background: {C_ACCENT}; color: white; border: none; border-radius: 10px;
+    padding: 9px 18px; font-weight: 700; font-size: 13.5px;
 }}
 QPushButton#Primary:hover {{ background: {C_ACCENT_HOVER}; }}
-QPushButton#Danger {{ background: #FEF2F2; color: {C_DANGER}; border: 1px solid #FECACA; }}
-QPushButton#Danger:hover {{ background: #FEE2E2; }}
-QPushButton#Ghost {{ background: transparent; border: none; color: {C_ACCENT}; }}
-QPushButton#Ghost:hover {{ background: #EEF2FF; }}
+QPushButton#Primary:pressed {{ background: #1E40AF; }}
+QPushButton#Danger {{
+    background: {C_DANGER_LIGHT}; color: {C_DANGER}; border: 1px solid {C_DANGER_LIGHT};
+    border-radius: 10px; padding: 8px 16px; font-weight: 700;
+}}
+QPushButton#Danger:hover {{ background: #FECACA; }}
+QPushButton#Ghost {{
+    background: transparent; border: none; color: {C_ACCENT};
+    font-weight: 700; font-size: 13px;
+}}
+QPushButton#Ghost:hover {{ background: {C_ACCENT_LIGHT}; }}
 QPushButton#Chip {{
-    background: #EEF2FF; color: {C_ACCENT}; border: none; border-radius: 12px;
-    padding: 5px 12px; font-size: 12px;
+    background: {C_ACCENT_LIGHT}; color: {C_ACCENT}; border: none; border-radius: 20px;
+    padding: 4px 14px; font-size: 12px; font-weight: 700;
 }}
+QPushButton#Chip:hover {{ background: #DBEAFE; }}
 
-/* ============================ THẺ (CARD) ============================ */
+/* ============================ THẺ (CARD) CAO CẤP ============================ */
 QFrame#Card {{
-    background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 12px;
+    background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 16px;
 }}
-QFrame#Card:hover {{ border-color: #C7D2FE; }}
+QFrame#Card:hover {{ border-color: {C_BORDER}; }}
 QFrame#StatCard {{
-    background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 12px;
+    background: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {C_CARD}, stop:1 #FAFBFC
+    );
+    border: 1px solid {C_BORDER}; border-radius: 16px;
 }}
-QFrame#StatCard[clickable="true"]:hover {{ border-color: {C_ACCENT}; background: #FBFDFF; }}
-QLabel#StatValue {{ font-size: 26px; font-weight: 800; color: {C_TEXT}; }}
-QLabel#StatTitle {{ font-size: 12.5px; color: {C_TEXT2}; font-weight: 600; }}
-QLabel#StatHint {{ font-size: 11px; color: #94A3B8; }}
-QLabel#SectionTitle {{ font-size: 16px; font-weight: 800; color: {C_TEXT}; }}
+QFrame#StatCard[clickable="true"]:hover {{
+    background: {C_ACCENT_LIGHT};
+    border-color: {C_ACCENT};
+}}
+QLabel#StatValue {{
+    font-size: 28px; font-weight: 800; color: {C_TEXT};
+    letter-spacing: -0.5px;
+}}
+QLabel#StatTitle {{
+    font-size: 13px; color: {C_TEXT2}; font-weight: 600;
+    letter-spacing: -0.2px;
+}}
+QLabel#StatHint {{ font-size: 11px; color: {C_TEXT3}; }}
+QLabel#SectionTitle {{
+    font-size: 17px; font-weight: 800; color: {C_TEXT};
+    letter-spacing: -0.5px;
+}}
 QLabel#Muted {{ color: {C_TEXT2}; }}
-QLabel#PageTitle {{ font-size: 20px; font-weight: 800; }}
+QLabel#PageTitle {{
+    font-size: 22px; font-weight: 800; color: {C_TEXT};
+    letter-spacing: -0.5px;
+}}
 
-/* ============================ BẢNG DỮ LIỆU ============================ */
+/* ============================ BẢNG DỮ LIỆU (Hiện đại) ============================ */
 QTableView {{
     background: {C_CARD};
-    alternate-background-color: #FAFBFD;
+    alternate-background-color: #FAFBFC;
     border: 1px solid {C_BORDER};
-    border-radius: 10px;
-    gridline-color: #EEF1F6;
-    selection-background-color: #DBEAFE;
-    selection-color: #0F172A;
+    border-radius: 14px;
+    gridline-color: #F3F4F6;
+    selection-background-color: {C_ACCENT_LIGHT};
+    selection-color: {C_TEXT};
     outline: none;
+    font-size: 13px;
 }}
-QTableView::item {{ padding: 6px 8px; border-bottom: 1px solid #F1F5F9; }}
-QTableView::item:selected {{ background: #DBEAFE; color: #0F172A; }}
+QTableView::item {{
+    padding: 10px 12px;
+    border-bottom: 1px solid {C_BORDER_SOFT};
+}}
+QTableView::item:selected {{
+    background: {C_ACCENT_LIGHT};
+    color: {C_TEXT};
+}}
 QHeaderView::section {{
-    background: #F8FAFC; color: #475569; padding: 8px; border: none;
-    border-bottom: 1px solid {C_BORDER}; border-right: 1px solid #F1F5F9;
-    font-weight: 700; font-size: 12px;
+    background: #FAFBFC; color: {C_TEXT2}; padding: 12px; border: none;
+    border-bottom: 1px solid {C_BORDER}; border-right: 1px solid {C_BORDER_SOFT};
+    font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
 }}
-QHeaderView::section:hover {{ background: #EEF2F7; }}
+QHeaderView::section:hover {{ background: {C_ACCENT_LIGHT}; color: {C_ACCENT}; }}
 
 /* ============================ THANH CÔNG CỤ / LỌC ============================ */
-QFrame#Toolbar {{ background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 10px; }}
+QFrame#Toolbar {{
+    background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 14px;
+}}
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
-    background: #FFFFFF; border: 1px solid {C_BORDER}; border-radius: 8px;
-    padding: 6px 9px; selection-background-color: {C_ACCENT};
+    background: #FFFFFF; border: 1px solid {C_BORDER}; border-radius: 10px;
+    padding: 9px 12px; selection-background-color: {C_ACCENT};
+    font-size: 13px;
 }}
 QLineEdit:focus, QComboBox:focus {{ border: 1.5px solid {C_ACCENT}; }}
-QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox::drop-down {{ border: none; width: 24px; }}
 QComboBox QAbstractItemView {{
-    background: white; border: 1px solid {C_BORDER}; border-radius: 8px;
-    selection-background-color: #EEF2FF; selection-color: {C_ACCENT};
-    outline: none;
+    background: white; border: 1px solid {C_BORDER}; border-radius: 10px;
+    selection-background-color: {C_ACCENT_LIGHT}; selection-color: {C_TEXT};
+    outline: none; font-size: 13px;
 }}
-QCheckBox {{ spacing: 7px; }}
-QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid #CBD5E1; background: white; }}
+QCheckBox {{ spacing: 8px; font-size: 13px; }}
+QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 6px;
+    border: 1.5px solid {C_BORDER}; background: white; }}
 QCheckBox::indicator:checked {{ background: {C_ACCENT}; border-color: {C_ACCENT}; }}
 
-/* ============================ GROUPBOX / FORM ============================ */
+/* ============================ FORM / NHÓM ============================ */
 QGroupBox {{
-    background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 10px;
-    margin-top: 14px; padding-top: 8px; font-weight: 700; color: #1E293B;
+    background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 14px;
+    margin-top: 16px; padding-top: 10px; font-weight: 700; color: {C_TEXT};
+    font-size: 13px;
 }}
 QGroupBox::title {{
-    subcontrol-origin: margin; left: 14px; padding: 0 6px; color: {C_ACCENT}; font-size: 13px;
+    subcontrol-origin: margin; left: 16px; padding: 0 8px;
+    color: {C_ACCENT}; font-size: 13px; font-weight: 800;
 }}
 QFormLayout {{ }}
 QLabel {{ background: transparent; }}
 
-/* ============================ THANH CUỘN / KHÁC ============================ */
+/* ============================ THANH CUỘN ============================ */
 QScrollArea {{ border: none; background: transparent; }}
-QScrollBar:vertical {{ background: transparent; width: 11px; margin: 2px; }}
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
 QScrollBar::handle:vertical {{
-    background: #CBD5E1; border-radius: 5px; min-height: 30px;
+    background: {C_TEXT3}; border-radius: 5px; min-height: 40px;
 }}
-QScrollBar::handle:vertical:hover {{ background: #94A3B8; }}
+QScrollBar::handle:vertical:hover {{ background: {C_TEXT2}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
-QScrollBar:horizontal {{ background: transparent; height: 11px; margin: 2px; }}
-QScrollBar::handle:horizontal {{ background: #CBD5E1; border-radius: 5px; min-width: 30px; }}
-QTabWidget::pane {{ border: 1px solid {C_BORDER}; border-radius: 10px; background: white; top: -1px; }}
-QTabBar::tab {{
-    background: transparent; padding: 9px 18px; color: {C_TEXT2}; font-weight: 700;
-    border-bottom: 2px solid transparent;
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
+QScrollBar::handle:horizontal {{
+    background: {C_TEXT3}; border-radius: 5px; min-width: 40px;
 }}
-QTabBar::tab:selected {{ color: {C_ACCENT}; border-bottom: 2px solid {C_ACCENT}; }}
+QScrollBar::handle:horizontal:hover {{ background: {C_TEXT2}; }}
+QTabWidget::pane {{
+    border: 1px solid {C_BORDER}; border-radius: 14px; background: white; top: -1px;
+}}
+QTabBar::tab {{
+    background: transparent; padding: 11px 22px; color: {C_TEXT2};
+    font-weight: 700; font-size: 13px; border-bottom: 3px solid transparent;
+}}
+QTabBar::tab:selected {{ color: {C_ACCENT}; border-bottom: 3px solid {C_ACCENT}; }}
 QTabBar::tab:hover {{ color: {C_ACCENT}; }}
 
-QStatusBar {{ background: {C_CARD}; border-top: 1px solid {C_BORDER}; color: {C_TEXT2}; }}
-QProgressBar {{ background: #E2E8F0; border: none; border-radius: 5px; height: 7px; text-align: center; }}
-QProgressBar::chunk {{ background: {C_ACCENT}; border-radius: 5px; }}
-
-/* ============================ POPUP KẾT QUẢ TÌM ============================ */
-QListView#SearchPopup {{
-    background: white; border: 1px solid {C_BORDER}; border-radius: 10px;
-    padding: 4px; selection-background-color: #EEF2FF; selection-color: {C_TEXT};
+QStatusBar {{
+    background: {C_CARD}; border-top: 1px solid {C_BORDER}; color: {C_TEXT2};
+    font-size: 12px; font-weight: 500;
 }}
-QListView#SearchPopup::item {{ padding: 8px 10px; border-radius: 7px; }}
-QListView#SearchPopup::item:selected {{ background: #EEF2FF; }}
+QProgressBar {{
+    background: {C_BORDER_SOFT}; border: none; border-radius: 6px; height: 8px;
+    text-align: center;
+}}
+QProgressBar::chunk {{ background: {C_ACCENT}; border-radius: 6px; }}
+
+/* ============================ POPUP TÌM KIẾM ============================ */
+QListView#SearchPopup {{
+    background: white; border: 1px solid {C_BORDER}; border-radius: 14px;
+    padding: 6px; selection-background-color: {C_ACCENT_LIGHT};
+    selection-color: {C_TEXT};
+}}
+QListView#SearchPopup::item {{ padding: 10px 12px; border-radius: 10px; }}
+QListView#SearchPopup::item:selected {{ background: {C_ACCENT_LIGHT}; }}
+
+/* ============================ PANEL CHI TIẾT PHÒNG ============================ */
+QFrame#DetailPanel {{
+    background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 16px;
+}}
+QLabel#DetailLabel {{ color: {C_TEXT2}; font-size: 12px; font-weight: 700; }}
+QLabel#DetailValue {{ color: {C_TEXT}; font-size: 14px; font-weight: 600; }}
 """
 
-
+# ------------------------------------------------------------------ HÀM HỖ TRỢ
 def status_color(key: str) -> str:
     return RoomStatus.color(key)
 
 
 def status_bg(key: str) -> str:
-    return RoomStatus.bg(key)
+    return STATUS_BG.get(key, "#F3F4F6")
 
 
 def status_label(key: str) -> str:

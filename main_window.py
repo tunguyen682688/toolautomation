@@ -181,8 +181,22 @@ class MainWindow(QMainWindow):
         top = QFrame()
         top.setObjectName("TopBar")
         tl = QHBoxLayout(top)
-        tl.setContentsMargins(18, 11, 18, 11)
-        tl.setSpacing(10)
+        tl.setContentsMargins(20, 12, 20, 12)
+        tl.setSpacing(12)
+
+        # ---- tiêu đề trang (bên trái header) ----
+        self.page_header_title = QLabel("Tổng quan")
+        self.page_header_title.setObjectName("PageHeaderTitle")
+        self.page_header_subtitle = QLabel("Quản lý kho căn hộ cho thuê")
+        self.page_header_subtitle.setObjectName("PageHeaderSubtitle")
+        header_text = QVBoxLayout()
+        header_text.setContentsMargins(0, 0, 0, 0)
+        header_text.setSpacing(2)
+        header_text.addWidget(self.page_header_title)
+        header_text.addWidget(self.page_header_subtitle)
+        tl.addLayout(header_text, 1)
+
+        tl.addSpacing(20)
 
         self.search_icon = QLabel("🔎")
         self.search_icon.setObjectName("SearchIcon")
@@ -194,7 +208,7 @@ class MainWindow(QMainWindow):
         self.search.setObjectName("SearchBox")
         self.search.setPlaceholderText(
             "Tìm nhanh: địa chỉ, mã phòng, số căn, loại phòng, SĐT, giá...  (Ctrl+F)")
-        self.search.setMinimumWidth(380)
+        self.search.setMinimumWidth(420)
         tl.addWidget(self.search, 1)
 
         self.lbl_hint = QLabel("Không dấu / không phân biệt hoa thường")
@@ -291,7 +305,7 @@ class MainWindow(QMainWindow):
         self.mgr.subscribe(listener)
 
     # ------------------------------------------------------------------ điều hướng
-    def navigate(self, key: str):
+    def navigate(self: 'MainWindow', key: str):
         self._nav = key
         idx = {"dashboard": 0, "buildings": 1, "rooms": 2}.get(key, 0)
         self.stack.setCurrentIndex(idx)
@@ -299,6 +313,17 @@ class MainWindow(QMainWindow):
             b.setProperty("active", "true" if k == key else "false")
             b.style().unpolish(b)
             b.style().polish(b)
+
+        # ---- tiêu đề trang hiện đại ----
+        titles = {
+            "dashboard": ("Tổng quan", "Theo dõi số liệu kho phòng và hoạt động gần đây"),
+            "buildings": ("Tòa nhà & chủ nhà", "Quản lý danh sách tòa nhà và thông tin liên hệ"),
+            "rooms": ("Danh sách phòng", "Tìm kiếm, lọc và cập nhật thông tin từng căn hộ"),
+        }
+        t, sub = titles.get(key, ("Tổng quan", ""))
+        self.page_header_title.setText(t)
+        self.page_header_subtitle.setText(sub)
+
         if key == "dashboard":
             self.page_dashboard.refresh()
         elif key == "buildings":

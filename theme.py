@@ -146,6 +146,13 @@ QPushButton#Chip {{
     padding: 4px 14px; font-size: 12px; font-weight: 700;
 }}
 QPushButton#Chip:hover {{ background: #DBEAFE; }}
+QPushButton#DetailAction {{
+    background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 10px;
+    padding: 9px 14px; font-weight: 600; color: {C_TEXT};
+    text-align: left; font-size: 13px;
+}}
+QPushButton#DetailAction:hover {{ background: {C_ACCENT_LIGHT}; border-color: {C_ACCENT}; color: {C_ACCENT}; }}
+QPushButton#DetailAction:pressed {{ background: #DBEAFE; }}
 
 /* ============================ THẺ (CARD) CAO CẤP ============================ */
 QFrame#Card {{

@@ -14,7 +14,7 @@ from PySide6.QtGui import QAction, QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFrame, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-    QMenu, QMessageBox, QPushButton, QSpinBox, QSplitter,
+    QMenu, QMessageBox, QPushButton, QSizePolicy, QSpinBox, QSplitter,
     QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolButton,
     QVBoxLayout, QWidget,
 )
@@ -377,9 +377,9 @@ class RoomPage(QWidget):
             "background:transparent; line-height: 160%; padding: 0 20px;")
         dl.addWidget(self.detail_body, 1)
 
-        # vùng nút hành động
+        # vùng nút hành động (lề đồng nhất 20px với nội dung)
         self.detail_actions = QVBoxLayout()
-        self.detail_actions.setContentsMargins(16, 8, 16, 16)
+        self.detail_actions.setContentsMargins(20, 8, 20, 16)
         self.detail_actions.setSpacing(8)
         dl.addLayout(self.detail_actions)
         split.addWidget(detail)
@@ -557,23 +557,25 @@ class RoomPage(QWidget):
                      "cần xác minh khoá nhận diện</span>")
         self.detail_body.setText(html)
 
-        # nút hành động (Sửa nổi bật - Primary, còn lại Ghost, Xóa - Danger)
+        # nút hành động: ĐỀU NHAU full-width (Sửa - Primary, còn lại DetailAction, Xóa - Danger)
         for label, slot in (
-            ("✏️ Sửa chi tiết", lambda: self._edit_room(rid)),
-            ("📞 Gọi chủ nhà", lambda: self._call(rid)),
-            ("💬 Mở Zalo", lambda: self._zalo(rid)),
-            ("📁 Mở Drive", lambda: self._drive(rid)),
-            ("🕘 Lịch sử trạng thái", lambda: self._history(rid)),
-            ("🗑 Xóa phòng", lambda: self._delete(rid)),
+            ("✏️  Sửa chi tiết", lambda: self._edit_room(rid)),
+            ("📞  Gọi chủ nhà", lambda: self._call(rid)),
+            ("💬  Mở Zalo", lambda: self._zalo(rid)),
+            ("📁  Mở Drive", lambda: self._drive(rid)),
+            ("🕘  Lịch sử trạng thái", lambda: self._history(rid)),
+            ("🗑  Xóa phòng", lambda: self._delete(rid)),
         ):
             b = QPushButton(label)
             b.setMinimumHeight(40)
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            b.setCursor(Qt.PointingHandCursor)
             if label.startswith("✏️"):
                 b.setObjectName("Primary")
             elif label.startswith("🗑"):
                 b.setObjectName("Danger")
             else:
-                b.setObjectName("Ghost")
+                b.setObjectName("DetailAction")
             b.clicked.connect(slot)
             self.detail_actions.addWidget(b)
 

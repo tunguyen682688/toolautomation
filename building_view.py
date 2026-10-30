@@ -261,9 +261,9 @@ class BuildingCard(QFrame):
         self.setObjectName("Card")
         self.b = b
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumWidth(330)
-        self.setMaximumWidth(430)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        # KÍCH THƯỚC ĐỀU NHAU -> thẻ xếp thành lưới cân đối trong FlowLayout
+        self.setFixedWidth(375)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(15, 13, 15, 13)

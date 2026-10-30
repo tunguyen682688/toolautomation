@@ -516,18 +516,25 @@ class RoomPage(QWidget):
             return
         st = r.get("status", "")
         fg = r.get("foreign_guest", 0)
+        acc = "#2563EB"
         html = f"""
         <div style='font-size:18px; font-weight:800;'>{r.get('room_code') or '(chưa có mã)'}</div>
         <div style='color:{status_color(st)}; font-weight:700; margin-top:2px;'>● {status_label(st)}</div>
         {'<div style="color:#15803D; font-weight:700; font-size:12px; margin-top:2px;">🌏 Nhận khách nước ngoài</div>' if fg else ''}
         <hr style='border:none; border-top:1px solid #E5E7EB; margin:10px 0;'>
-        <div style='font-size:13px; line-height:1.7;'>
+        <table width='100%' cellspacing='0' cellpadding='0' style='font-size:13px;'>
+        <tr><td style='color:#6B7280; font-weight:700; padding:2px 0;'>Giá thuê</td>
+            <td style='color:{acc}; font-weight:800; text-align:right;'>{tu.format_money(r.get('price'))} ₫</td></tr>
+        <tr><td style='color:#6B7280; font-weight:700; padding:2px 0;'>Tiền cọc</td>
+            <td style='color:{acc}; font-weight:800; text-align:right;'>{tu.format_money(r.get('deposit'))} ₫</td></tr>
+        <tr><td style='color:#6B7280; font-weight:700; padding:2px 0;'>Diện tích</td>
+            <td style='color:{acc}; font-weight:800; text-align:right;'>{r.get('area') or '—'} m2</td></tr>
+        </table>
+        <hr style='border:none; border-top:1px solid #E5E7EB; margin:10px 0;'>
+        <div style='font-size:12.5px; line-height:1.8;'>
         <span style='color:#6B7280; font-weight:700;'>Địa chỉ:</span> {r.get('address') or '—'}<br>
         <span style='color:#6B7280; font-weight:700;'>Số căn / Tầng:</span> {r.get('unit_code') or '—'} / {r.get('floor') or '—'}<br>
         <span style='color:#6B7280; font-weight:700;'>Loại phòng:</span> {r.get('room_type') or '—'}<br>
-        <span style='color:#6B7280; font-weight:700;'>Giá thuê:</span> {tu.format_money(r.get('price'))} ₫<br>
-        <span style='color:#6B7280; font-weight:700;'>Tiền cọc:</span> {tu.format_money(r.get('deposit'))} ₫<br>
-        <span style='color:#6B7280; font-weight:700;'>Diện tích:</span> {r.get('area') or '—'} m2<br>
         <span style='color:#6B7280; font-weight:700;'>Sức chứa:</span> {r.get('capacity') or '—'}<br>
         <span style='color:#6B7280; font-weight:700;'>Khảo sát:</span> {'✅ Đã khảo sát' if r.get('surveyed') else 'Chưa khảo sát'}<br>
         <span style='color:#6B7280; font-weight:700;'>Xe điện:</span> {'⚡ Có sạc' if r.get('ev_support') else 'Không'}<br>
@@ -548,7 +555,7 @@ class RoomPage(QWidget):
                      "cần xác minh khoá nhận diện</span>")
         self.detail_body.setText(html)
 
-        # nút hành động (đầy chiều rộng, bo tròn, hiện đại)
+        # nút hành động (Sửa nổi bật - Primary, còn lại Ghost, Xóa - Danger)
         for label, slot in (
             ("✏️ Sửa chi tiết", lambda: self._edit_room(rid)),
             ("📞 Gọi chủ nhà", lambda: self._call(rid)),
@@ -559,7 +566,9 @@ class RoomPage(QWidget):
         ):
             b = QPushButton(label)
             b.setMinimumHeight(40)
-            if label.startswith("🗑"):
+            if label.startswith("✏️"):
+                b.setObjectName("Primary")
+            elif label.startswith("🗑"):
                 b.setObjectName("Danger")
             else:
                 b.setObjectName("Ghost")
@@ -585,6 +594,7 @@ class RoomPage(QWidget):
         dlg = RoomEditForm(self.mgr, r, self)
         if dlg.exec():
             self.refresh()
+            self._load_buildings()   # địa chỉ có thể đổi -> tạo tòa mới -> cập nhật combobox
             self._open_detail(rid)
 
     def _call(self, rid: str):

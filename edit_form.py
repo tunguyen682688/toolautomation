@@ -346,6 +346,9 @@ class RoomEditForm(QDialog):
         self.btn_save = btns.addButton("Lưu", QDialogButtonBox.AcceptRole)
         self.btn_save.setObjectName("Primary")
         self.btn_save_more = btns.addButton("Lưu & thêm tiếp", QDialogButtonBox.ActionRole)
+        # "Lưu & thêm tiếp" chỉ có ý nghĩa khi THÊM MỚI - ẩn khi đang sửa
+        if not self.is_new:
+            self.btn_save_more.setVisible(False)
         btns.addButton("Hủy", QDialogButtonBox.RejectRole)
         btns.accepted.connect(self._save)
         btns.rejected.connect(self.reject)
@@ -630,7 +633,15 @@ class RoomEditForm(QDialog):
             else:
                 rid = self.room["id"]
                 changes = {k: v for k, v in payload.items() if k != "status_text"}
-                room = self.mgr.update_room(rid, changes, actor=actor)
+                # Kiểm tra trùng THẬT (loại trừ chính bản ghi đang sửa):
+                # - room_exists -> chặn (trùng phòng khác)
+                # - chỉ warn (bản ghi khác tương tự) -> cho phép lưu khi người dùng chủ động sửa
+                res = self.mgr.check_new(payload, exclude_id=rid)
+                if res.room_exists:
+                    self._show_duplicate(DuplicateError(res))
+                    return
+                room = self.mgr.update_room(rid, changes, actor=actor, force=True,
+                                            note="Sửa từ form chi tiết")
         except DuplicateError as e:
             self._show_duplicate(e)
             return

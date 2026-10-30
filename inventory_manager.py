@@ -572,10 +572,16 @@ class InventoryManager:
                 msg = f"Đã hủy thao tác thêm phòng {rid}"
             elif action in ("update", "status"):
                 if old_values:
-                    # loại bỏ các trường không nên hoàn tác ngược
-                    safe = {k: v for k, v in old_values.items()
-                            if k not in ("id", "created_at", "search_norm", "sync_state")}
-                    self.update_room(rid, safe, actor=actor, note="Hoàn tác (Ctrl+Z)")
+                    # chỉ hoàn tác dữ liệu PHÒNG (giá, cọc, trạng thái, ghi chú...)
+                    # - loại bỏ: khóa hệ thống + khóa thuộc BẢNG TÒA NHÀ (address/building)
+                    #   vì snapshot get_room KHÔNG có house_number/street... -> update_room
+                    #   sẽ tưởng "đổi địa chỉ" -> ensure_building fail
+                    skip = ("id", "created_at", "search_norm", "sync_state",
+                            "building_id", "address", "building_code",
+                            "house_number", "street", "ward", "district")
+                    safe = {k: v for k, v in old_values.items() if k not in skip}
+                    if safe:
+                        self.update_room(rid, safe, actor=actor, note="Hoàn tác (Ctrl+Z)")
                 msg = f"Đã hoàn tác thay đổi phòng {rid}"
             else:
                 msg = f"Bỏ qua thao tác '{action}' (không hỗ trợ hoàn tác)"

@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-"""edit_form.py - Biểu mẫu Thêm / Sửa phòng gồm 8 nhóm thông tin.
+"""edit_form.py - Biểu mẫu Thêm / Sửa phòng hiện đại.
 
-Tính năng theo đặc tả:
-- 8 nhóm: Địa chỉ · Nhận diện · Giá & cọc · Tiện ích · Chính sách · Liên hệ · Media · Ghi chú
-- Tự điền chủ nhà / SĐT / Zalo / chính sách khi chọn địa chỉ tòa đã có (QCompleter)
-- Banner kiểm tra trùng có DEBOUNCE 350ms -> hiện cảnh báo TRƯỚC khi bấm Lưu
-- Nút "Lưu" và "Lưu & thêm tiếp" (tiếp tục nhập nhanh)
+Tính năng:
+- Giao diện thẻ (card), bố cục cân đối 2 cột, màu sắc hiện đại.
+- Hệ thống gợi ý trùng lặp real-time (debounce 350ms): hiện phòng trùng +
+  nút "Mở bản ghi cũ" ngay TRƯỚC khi bấm Lưu.
+- Tự điền chủ nhà / SĐT / Zalo / chính sách khi chọn địa chỉ tòa đã có.
+- Nháp tự động: nhập dở tắt app -> mở lại hỏi khôi phục.
+- Nút Lưu / Lưu & thêm tiếp.
 """
 from __future__ import annotations
 
@@ -14,27 +16,36 @@ from typing import Any, Dict, Optional
 import json
 
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QTimer, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
-    QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QScrollArea,
-    QVBoxLayout, QWidget, QCompleter,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QFormLayout,
+    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+    QScrollArea, QSizePolicy, QVBoxLayout, QWidget, QCompleter,
 )
 
 import text_utils as tu
 from inventory_manager import DuplicateError
 from models import ROOM_TYPES, RoomStatus
-from theme import C_DANGER, C_OK, C_ORANGE, status_color, status_label
+from theme import C_ACCENT, C_ACCENT_HOVER, C_DANGER, C_OK, C_ORANGE, \
+    status_color, status_label
 
 GROUP_TITLES = [
     "1. Địa chỉ tòa nhà",
     "2. Nhận diện căn hộ",
     "3. Giá thuê & tiền cọc",
     "4. Tiện ích & sức chứa",
-    "5. Chính sách (xe điện / thú cưng)",
+    "5. Chính sách (xe điện / thú cưng / nước ngoài)",
     "6. Liên hệ chủ nhà / Zalo",
     "7. Media (Drive) & đánh giá",
     "8. Ghi chú & trạng thái",
 ]
+
+# Màu đại diện cho mức độ nghi ngờ trùng
+SEVERITY_COLORS = {
+    "block": C_DANGER,
+    "warn": C_ORANGE,
+    "info": C_OK,
+}
 
 
 # ------------------------------------------------------------------ model địa chỉ cho QCompleter
@@ -66,7 +77,7 @@ class AddressModel(QAbstractListModel):
 
 # ------------------------------------------------------------------ form
 class RoomEditForm(QDialog):
-    """Form thêm/sửa phòng - 8 nhóm, kiểm tra trùng realtime, Lưu / Lưu & thêm tiếp."""
+    """Form thêm/sửa phòng - giao diện hiện đại, gợi ý trùng real-time."""
 
     saved = Signal(str)            # room_id
     save_and_continue = Signal(dict)
@@ -80,13 +91,15 @@ class RoomEditForm(QDialog):
         self._auto_filled = False
         self._last_check: Dict[str, Any] = {}
 
-        self.setWindowTitle("Thêm phòng mới" if self.is_new else
-                            f"Sửa phòng {self.room.get('room_code', '')}")
-        self.setMinimumSize(720, 760)
+        title = "Thêm phòng mới" if self.is_new else f"Sửa phòng {self.room.get('room_code', '')}"
+        self.setWindowTitle(title)
+        self.setMinimumSize(900, 700)
+        self.resize(1000, 760)
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(16, 14, 16, 12)
-        self.layout().setSpacing(9)
+        self.layout().setSpacing(10)
 
+        self._build_header()
         self._build_banner()
         self._build_form()
         self._build_buttons()
@@ -97,7 +110,7 @@ class RoomEditForm(QDialog):
         self._debounce.setInterval(350)
         self._debounce.timeout.connect(self._run_check)
 
-        # --- AUTO DRAFT: tự lưu nháp nhập liệu (tránh mất khi tắt app nhầm) ---
+        # --- AUTO DRAFT: tự lưu nháp nhập liệu ---
         self._draft_key = "room_draft"
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
@@ -107,117 +120,190 @@ class RoomEditForm(QDialog):
         self._seed_values()
         self._connect_autofill()
         if self.is_new:
-            self._apply_draft()   # nếu có nháp lưu từ lần trước -> điền vào form
+            self._apply_draft()
 
-    # ------------------------------------------------------------------ UI
+    # ------------------------------------------------------------------ header hiện đại
+    def _build_header(self):
+        bar = QFrame()
+        bar.setObjectName("Card")
+        bar.setFixedHeight(56)
+        hl = QHBoxLayout(bar)
+        hl.setContentsMargins(16, 0, 16, 0)
+        hl.setSpacing(12)
+
+        icon = QLabel("＋" if self.is_new else "✎")
+        icon.setStyleSheet(
+            f"font-size:22px; font-weight:800; color:{C_ACCENT}; background:transparent;")
+        hl.addWidget(icon)
+
+        t = QLabel(self.windowTitle())
+        t.setObjectName("PageTitle")
+        t.setStyleSheet("background:transparent; font-size:16px; font-weight:700;")
+        hl.addWidget(t)
+        hl.addStretch(1)
+
+        hint = QLabel("Gõ địa chỉ để gợi ý tòa đã có • trùng sẽ cảnh báo ngay khi nhập")
+        hint.setObjectName("Muted")
+        hint.setStyleSheet("background:transparent; font-size:11.5px;")
+        hl.addWidget(hint)
+
+        self.layout().addWidget(bar)
+
+    # ------------------------------------------------------------------ banner gợi ý trùng
     def _build_banner(self):
         self.banner = QFrame()
         self.banner.setObjectName("Card")
         bl = QVBoxLayout(self.banner)
-        bl.setContentsMargins(12, 9, 12, 9)
-        self.banner_label = QLabel("Nhập địa chỉ + số căn để kiểm tra trùng tự động...")
+        bl.setContentsMargins(14, 10, 14, 10)
+        bl.setSpacing(6)
+
+        self.banner_label = QLabel("Nhập địa chỉ + số căn để kiểm tra trùng tự động…")
         self.banner_label.setWordWrap(True)
         self.banner_label.setTextFormat(Qt.RichText)
         self.banner_label.setStyleSheet("background:transparent;")
         bl.addWidget(self.banner_label)
+
+        # hàng nút hành động trong banner (hiện khi có gợi ý trùng)
+        self.btn_row = QHBoxLayout()
+        self.btn_row.setSpacing(8)
+        self.btn_open_dup = QPushButton("Mở bản ghi cũ")
+        self.btn_open_dup.setObjectName("Ghost")
+        self.btn_open_dup.setFixedHeight(28)
+        self.btn_open_dup.hide()
+        self.btn_open_dup.clicked.connect(self._open_suggested_duplicate)
+        self.btn_row.addWidget(self.btn_open_dup)
+        self.btn_row.addStretch(1)
+        bl.addLayout(self.btn_row)
+
         self.banner.hide()
         self.layout().addWidget(self.banner)
 
-    def _group(self, idx: int) -> QFrame:
+    # ------------------------------------------------------------------ helper tạo nhóm
+    def _group(self, idx: int):
         box = QFrame()
         box.setObjectName("Card")
         v = QVBoxLayout(box)
-        v.setContentsMargins(14, 10, 14, 12)
-        v.setSpacing(8)
+        v.setContentsMargins(16, 12, 16, 14)
+        v.setSpacing(10)
         t = QLabel(GROUP_TITLES[idx - 1])
         t.setObjectName("SectionTitle")
-        t.setStyleSheet("font-size:13.5px; background:transparent;")
+        t.setStyleSheet("font-size:13px; background:transparent;")
         v.addWidget(t)
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignRight)
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(9)
+        form = QGridLayout()
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
         v.addLayout(form)
         self.layout().addWidget(box)
         return box, form
 
+    # ------------------------------------------------------------------ xây form (grid 2 cột mỗi nhóm)
     def _build_form(self):
         self.ed: Dict[str, QWidget] = {}
 
+        # ---------- nhóm 1: Địa chỉ ----------
         _, f1 = self._group(1)
         self.ed["house_number"] = self._line("Ví dụ: 86, 79/16, 371A")
         self.ed["street"] = self._line("Ví dụ: Nguyễn Thượng Hiền")
         self.ed["ward"] = self._line("Ví dụ: P. 13")
         self.ed["district"] = self._line("Ví dụ: Q. Bình Thạnh cũ")
-        f1.addRow("Số nhà:", self.ed["house_number"])
-        f1.addRow("Tên đường:", self.ed["street"])
-        f1.addRow("Phường:", self.ed["ward"])
-        f1.addRow("Quận / Khu vực:", self.ed["district"])
+        f1.addWidget(QLabel("Số nhà:"), 0, 0)
+        f1.addWidget(self.ed["house_number"], 0, 1)
+        f1.addWidget(QLabel("Tên đường:"), 0, 2)
+        f1.addWidget(self.ed["street"], 0, 3)
+        f1.addWidget(QLabel("Phường:"), 1, 0)
+        f1.addWidget(self.ed["ward"], 1, 1)
+        f1.addWidget(QLabel("Quận / Khu vực:"), 1, 2)
+        f1.addWidget(self.ed["district"], 1, 3)
 
+        # ---------- nhóm 2: Nhận diện ----------
         _, f2 = self._group(2)
         self.ed["room_code"] = self._line("Ví dụ: P-86")
-        self.ed["unit_code"] = self._line("Số căn thực tế - dùng làm khoá chống trùng")
+        self.ed["unit_code"] = self._line("Số căn thực tế - khoá chống trùng")
         self.ed["floor"] = self._line("Ví dụ: 3, Lầu 2")
         self.ed["room_type"] = QComboBox()
         self.ed["room_type"].setEditable(True)
         self.ed["room_type"].addItems(ROOM_TYPES)
-        f2.addRow("Mã phòng:", self.ed["room_code"])
-        f2.addRow("Số căn:", self.ed["unit_code"])
-        f2.addRow("Tầng:", self.ed["floor"])
-        f2.addRow("Dạng phòng:", self.ed["room_type"])
+        f2.addWidget(QLabel("Mã phòng:"), 0, 0)
+        f2.addWidget(self.ed["room_code"], 0, 1)
+        f2.addWidget(QLabel("Số căn:"), 0, 2)
+        f2.addWidget(self.ed["unit_code"], 0, 3)
+        f2.addWidget(QLabel("Tầng:"), 1, 0)
+        f2.addWidget(self.ed["floor"], 1, 1)
+        f2.addWidget(QLabel("Dạng phòng:"), 1, 2)
+        f2.addWidget(self.ed["room_type"], 1, 3)
 
+        # ---------- nhóm 3: Giá & cọc ----------
         _, f3 = self._group(3)
         self.ed["price"] = self._line("Ví dụ: 7000000 hoặc 7.5tr")
         self.ed["deposit"] = self._line("Ví dụ: 7000000")
-        f3.addRow("Giá thuê (VNĐ):", self.ed["price"])
-        f3.addRow("Tiền cọc (VNĐ):", self.ed["deposit"])
+        f3.addWidget(QLabel("Giá thuê (VNĐ):"), 0, 0)
+        f3.addWidget(self.ed["price"], 0, 1)
+        f3.addWidget(QLabel("Tiền cọc (VNĐ):"), 1, 0)
+        f3.addWidget(self.ed["deposit"], 1, 1)
 
+        # ---------- nhóm 4: Tiện ích ----------
         _, f4 = self._group(4)
         self.ed["capacity"] = self._line("Ví dụ: 2 Ng/2 Xe")
         self.ed["ev_support"] = QCheckBox("⚡ Hỗ trợ sạc xe điện")
         self.ed["foreign_guest"] = QCheckBox("🌏 Nhận khách nước ngoài")
-        f4.addRow("Tối đa (người/xe):", self.ed["capacity"])
-        f4.addRow("", self.ed["ev_support"])
-        f4.addRow("", self.ed["foreign_guest"])
+        f4.addWidget(QLabel("Tối đa (người/xe):"), 0, 0)
+        f4.addWidget(self.ed["capacity"], 0, 1)
+        f4.addWidget(self.ed["ev_support"], 1, 0, 1, 2)
+        f4.addWidget(self.ed["foreign_guest"], 1, 2, 1, 2)
 
+        # ---------- nhóm 5: Chính sách ----------
         _, f5 = self._group(5)
         self.ed["pet_policy"] = QComboBox()
         self.ed["pet_policy"].setEditable(True)
-        self.ed["pet_policy"].addItems(["Cho nuôi Mèo", "Cho nuôi Chó", "Cho nuôi (chó/mèo)",
-                                        "Không nuôi", ""])
+        self.ed["pet_policy"].addItems(["Cho nuôi Mèo", "Cho nuôi Chó",
+                                        "Cho nuôi (chó/mèo)", "Không nuôi", ""])
         self.ed["pet_note"] = self._line("Chính sách chi tiết (giữ nguyên văn bản gốc)")
-        f5.addRow("Nuôi thú cưng:", self.ed["pet_policy"])
-        f5.addRow("Ghi chú chính sách:", self.ed["pet_note"])
+        f5.addWidget(QLabel("Nuôi thú cưng:"), 0, 0)
+        f5.addWidget(self.ed["pet_policy"], 0, 1)
+        f5.addWidget(QLabel("Ghi chú chính sách:"), 1, 0)
+        f5.addWidget(self.ed["pet_note"], 1, 1)
 
+        # ---------- nhóm 6: Liên hệ ----------
         _, f6 = self._group(6)
         self.ed["owner_phone"] = self._line("Ví dụ: 0868328147")
         self.ed["zalo_group"] = self._line("zalo.me/g/...")
-        f6.addRow("SĐT chủ / admin:", self.ed["owner_phone"])
-        f6.addRow("Group Zalo:", self.ed["zalo_group"])
+        f6.addWidget(QLabel("SĐT chủ / admin:"), 0, 0)
+        f6.addWidget(self.ed["owner_phone"], 0, 1)
+        f6.addWidget(QLabel("Group Zalo:"), 1, 0)
+        f6.addWidget(self.ed["zalo_group"], 1, 1)
 
+        # ---------- nhóm 7: Media ----------
         _, f7 = self._group(7)
         self.ed["drive_link"] = self._line("drive.google.com/folder/...")
         self.ed["rating"] = self._line("Ví dụ: ⭐⭐⭐⭐ Ban công rộng")
-        f7.addRow("Link Drive media:", self.ed["drive_link"])
-        f7.addRow("Đánh giá / độ đẹp:", self.ed["rating"])
+        f7.addWidget(QLabel("Link Drive media:"), 0, 0)
+        f7.addWidget(self.ed["drive_link"], 0, 1)
+        f7.addWidget(QLabel("Đánh giá / độ đẹp:"), 1, 0)
+        f7.addWidget(self.ed["rating"], 1, 1)
 
+        # ---------- nhóm 8: Ghi chú & trạng thái ----------
         _, f8 = self._group(8)
         self.ed["status"] = QComboBox()
         for k in RoomStatus.ORDER:
             self.ed["status"].addItem(f"● {RoomStatus.label(k)}", k)
         self.ed["surveyed"] = QCheckBox("📸 Đã khảo sát (có ảnh/video)")
         self.ed["notes"] = QPlainTextEdit()
-        self.ed["notes"].setMinimumHeight(64)
-        self.ed["notes"].setPlaceholderText("Chính sách, nội thất, tiện ích, ghi chú sale...")
-        f8.addRow("Trạng thái:", self.ed["status"])
-        f8.addRow("", self.ed["surveyed"])
-        f8.addRow("Ghi chú:", self.ed["notes"])
+        self.ed["notes"].setMinimumHeight(72)
+        self.ed["notes"].setPlaceholderText(
+            "Chính sách, nội thất, tiện ích, ghi chú sale...")
+        f8.addWidget(QLabel("Trạng thái:"), 0, 0)
+        f8.addWidget(self.ed["status"], 0, 1)
+        f8.addWidget(QLabel("Khảo sát:"), 1, 0)
+        f8.addWidget(self.ed["surveyed"], 1, 1)
+        f8.addWidget(QLabel("Ghi chú:"), 2, 0)
+        f8.addWidget(self.ed["notes"], 2, 1)
 
     def _line(self, placeholder: str = "") -> QLineEdit:
         ed = QLineEdit()
         ed.setPlaceholderText(placeholder)
         return ed
 
+    # ------------------------------------------------------------------ nút điều khiển
     def _build_buttons(self):
         row = QHBoxLayout()
         row.addStretch(1)
@@ -347,29 +433,45 @@ class RoomEditForm(QDialog):
                     f"cập nhật: {ex.get('updated_at')}<br>"
                     f"<b>-> Bấm Lưu sẽ bị chặn. Hãy MỞ bản ghi cũ để sửa.</b>")
             self.btn_save.setEnabled(False)
+            self.btn_open_dup.setVisible(True)
+            self._dup_existing_id = ex.get("id")
         elif res.has_warn:
             color = C_ORANGE
             head = "⚠ NGHI NGỜ TRÙNG DỮ LIỆU"
             body = "<br>".join(f.message for f in res.findings if f.severity == "warn")
             self.btn_save.setEnabled(True)
+            self.btn_open_dup.setVisible(False)
+            self._dup_existing_id = None
         else:
             color = C_OK
             head = "✓ Không phát hiện trùng"
             info = [f.message for f in res.findings if f.kind in ("building_exists", "building_new")]
             body = info[0] if info else "Sẵn sàng lưu."
             self.btn_save.setEnabled(True)
+            self.btn_open_dup.setVisible(False)
+            self._dup_existing_id = None
 
         self.banner_label.setText(
             f"<b style='color:{color};'>{head}</b><br>"
             f"<span style='color:#475569;'>{body}</span>")
         self.banner.show()
 
+    def _open_suggested_duplicate(self):
+        """Mở bản ghi trùng được gợi ý (nếu có)."""
+        rid = getattr(self, "_dup_existing_id", None)
+        if not rid:
+            return
+        self.reject()
+        mw = self.parent()
+        if mw and hasattr(mw, "_open_detail"):
+            mw._open_detail(rid)
+
     # ------------------------------------------------------------------ nháp tự động (draft)
     def _schedule_draft(self, *_):
         self._draft_timer.start()
 
     def _draft_payload(self) -> Dict[str, Any]:
-        """Lấy giá trị THẢO (chưa normalize) để lưu nháp - tránh lỗi nếu giá nhập sai."""
+        """Lấy giá trị THẢO (chưa normalize) để lưu nháp."""
         out: Dict[str, Any] = {}
         for k, w in self.ed.items():
             if isinstance(w, QLineEdit):
@@ -385,9 +487,8 @@ class RoomEditForm(QDialog):
 
     def _save_draft(self):
         if not self.is_new:
-            return                                # chỉ lưu nháp cho form thêm mới
+            return
         p = self._draft_payload()
-        # không lưu nếu form còn trống hoàn toàn
         if not any(str(v) for v in p.values()):
             return
         try:
@@ -426,7 +527,6 @@ class RoomEditForm(QDialog):
                     w.setPlainText(str(v or ""))
             except Exception:  # noqa: BLE001
                 pass
-        # focus vào mã phòng để người dùng tiếp tục nhập
         self.ed["room_code"].setFocus()
 
     def _clear_draft(self):
@@ -567,3 +667,5 @@ def QMessageBox_Warning(parent, title: str, text: str):
 def QMessageBox_Critical(parent, title: str, text: str):
     from PySide6.QtWidgets import QMessageBox
     QMessageBox.critical(parent, title, text)
+
+

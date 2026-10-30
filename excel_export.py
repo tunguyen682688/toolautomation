@@ -44,6 +44,8 @@ def _field_value(field: str, room: Dict[str, Any], building: Dict[str, Any]) -> 
         return room.get("pet_policy") or ""
     if field == "foreign_guest":
         return "Có 🌏" if room.get("foreign_guest") else "Không"
+    if field == "area":
+        return room.get("area") or ""
     return room.get(field, "") if room.get(field) is not None else ""
 
 
@@ -93,7 +95,7 @@ ROOM_HEADERS = ["STT", "Trạng Thái", "Khảo Sát", "Số Nhà", "Tên Đư�
                 "Quận / Khu Vực Cũ", "Mã Phòng", "Dạng Phòng", "Giá Thuê (VNĐ)", "Cọc (VNĐ)",
                 "Tối Đa (Người/Xe)", "Xe Điện ⚡", "Nuôi Pet 🐾", "Đánh Giá / Độ Đẹp ⭐",
                 "SĐT Chủ / Admin", "Group Zalo Tòa Nhà", "Link Drive Kho Media",
-                "Chính Sách & Ghi Chú Chi Tiết", "Nhận Khách Nước Ngoài 🌏",
+                "Chính Sách & Ghi Chú Chi Tiết", "Nhận Khách Nước Ngoài 🌏", "Diện Tích (m2)",
                 # 2 cột BỔ SUNG cuối bảng (không dịch chuyển cột cũ -> công thức/định dạng gốc giữ nguyên)
                 "Số Căn", "Tầng"]
 BUILDING_HEADERS = ["STT", "Số Nhà", "Tên Đường", "Phường", "Quận / Khu Vực Cũ",
@@ -117,7 +119,7 @@ def export_workbook(path: str, rooms: List[Dict[str, Any]], buildings: List[Dict
     mapping = {name: i for i, name in enumerate(
         ["stt", "status", "surveyed", "house_number", "street", "ward", "district", "room_code",
          "room_type", "price", "deposit", "capacity", "ev_support", "pet_policy", "rating",
-         "owner_phone", "zalo_group", "drive_link", "notes", "foreign_guest", "unit_code", "floor"])}
+         "owner_phone", "zalo_group", "drive_link", "notes", "foreign_guest", "area", "unit_code", "floor"])}
     data_rows: List[List[Any]] = []
     for i, r in enumerate(rooms, start=1):
         if r.get("deleted") and not include_deleted:
@@ -129,7 +131,7 @@ def export_workbook(path: str, rooms: List[Dict[str, Any]], buildings: List[Dict
     _write_sheet(ws, "KHO HÀNG PHÒNG TRỐNG",
                  "Dữ liệu tổng hợp từ phần mềm quản lý kho căn hộ (xuất từ SQLite/Google Sheets)",
                  ROOM_HEADERS, data_rows, widths=[6, 16, 12, 10, 20, 12, 18, 14, 14, 14, 14,
-                                                  16, 12, 14, 30, 24, 26, 34, 60, 16, 12, 8])
+                                                  16, 12, 14, 30, 24, 26, 34, 60, 16, 12, 10, 12, 8])
     # dòng tổng cộng
     total_row = 6 + len(data_rows)
     ws.cell(row=total_row, column=3, value="TỔNG CỘNG / TRUNG BÌNH").font = Font(bold=True)

@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS rooms (
     surveyed      INTEGER NOT NULL DEFAULT 0,
     price         INTEGER NOT NULL DEFAULT 0,
     deposit       INTEGER NOT NULL DEFAULT 0,
+    area          TEXT NOT NULL DEFAULT '',
     capacity      TEXT NOT NULL DEFAULT '',
     ev_support    INTEGER NOT NULL DEFAULT 0,
     pet_policy    TEXT NOT NULL DEFAULT '',   -- GIỮ NGUYÊN văn bản gốc từ Excel
@@ -225,6 +226,9 @@ class Database:
                 if "foreign_guest" not in cols:
                     self._conn.execute(
                         "ALTER TABLE rooms ADD COLUMN foreign_guest INTEGER NOT NULL DEFAULT 0")
+                if "area" not in cols:
+                    self._conn.execute(
+                        "ALTER TABLE rooms ADD COLUMN area TEXT NOT NULL DEFAULT ''")
             except sqlite3.OperationalError:
                 pass
             ver = self._conn.execute("PRAGMA user_version").fetchone()[0]

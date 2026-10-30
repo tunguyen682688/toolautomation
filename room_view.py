@@ -118,6 +118,8 @@ class RoomTableModel(QAbstractTableModel):
             return status_label(v)
         if key in ("price", "deposit"):
             return tu.format_money(v) + " ₫"
+        if key == "area":
+            return f"{v} m2" if v else "—"
         if key == "surveyed":
             return "✅ Đã KS" if v else "Chưa KS"
         if key == "ev_support":
@@ -467,6 +469,7 @@ class RoomPage(QWidget):
         <b>Loại phòng:</b> {r.get('room_type') or '—'}<br>
         <b>Giá thuê:</b> {tu.format_money(r.get('price'))} ₫<br>
         <b>Tiền cọc:</b> {tu.format_money(r.get('deposit'))} ₫<br>
+        <b>Diện tích:</b> {r.get('area') or '—'} m2<br>
         <b>Sức chứa:</b> {r.get('capacity') or '—'}<br>
         <b>Khảo sát:</b> {'✅ Đã khảo sát' if r.get('surveyed') else 'Chưa khảo sát'}<br>
         <b>Xe điện:</b> {'⚡ Có sạc' if r.get('ev_support') else 'Không'}<br>

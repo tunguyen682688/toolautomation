@@ -39,6 +39,7 @@ class Doc:
     pet: bool
     surveyed: bool
     foreign_guest: bool
+    area: str
     needs_verify: bool
     deleted: bool
     code_key: str
@@ -70,6 +71,7 @@ def _make_doc(row: Dict) -> Doc:
         pet=bool(row.get("pet_ok")),
         surveyed=bool(row.get("surveyed")),
         foreign_guest=bool(row.get("foreign_guest")),
+        area=str(row.get("area") or ""),
         needs_verify=bool(row.get("needs_verify")),
         deleted=bool(row.get("deleted")),
         code_key=code_key,

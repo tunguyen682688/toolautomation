@@ -174,6 +174,7 @@ class Room:
     surveyed: int = 0
     price: int = 0
     deposit: int = 0
+    area: str = ""          # diện tích phòng (m2)
     capacity: str = ""
     ev_support: int = 0
     pet_policy: str = ""
@@ -224,6 +225,7 @@ ROOM_COLUMNS: List[Dict] = [
     {"name": "room_type",   "header": "Dạng Phòng",                 "aliases": ["dang phong", "dangphong", "loai phong", "room type"], "type": "text", "editable": True},
     {"name": "price",       "header": "Giá Thuê (VNĐ)",             "aliases": ["gia thue", "giathue", "gia", "price", "gia thue vnd"], "type": "money", "editable": True},
     {"name": "deposit",     "header": "Cọc (VNĐ)",                  "aliases": ["coc", "tien coc", "tiencoc", "deposit"], "type": "money", "editable": True},
+    {"name": "area",        "header": "Diện Tích (m2)",             "aliases": ["dien tich", "dientich", "area", "m2"], "type": "text", "editable": True},
     {"name": "capacity",    "header": "Tối Đa (Người/Xe)",          "aliases": ["suc chua", "toi da", "suc chua nguoi xe", "capacity"], "type": "text", "editable": True},
     {"name": "ev_support",  "header": "Xe Điện ⚡",                  "aliases": ["xe dien", "xedien", "ev", "ho tro xe dien"], "type": "bool", "editable": True},
     {"name": "pet_policy",  "header": "Nuôi Pet 🐾",                "aliases": ["nuoi pet", "thu cung", "pet", "chinh sach pet"], "type": "pet", "editable": True},
@@ -247,6 +249,7 @@ ROOM_TABLE_COLUMNS: List[Tuple[str, str, int]] = [
     ("room_type",   "Dạng phòng",  110),
     ("price",       "Giá thuê",    110),
     ("deposit",     "Tiền cọc",    105),
+    ("area",        "Diện tích",    85),
     ("surveyed",    "Khảo sát",     90),
     ("ev_support",  "Xe điện",      80),
     ("pet_policy",  "Thú cưng",     100),

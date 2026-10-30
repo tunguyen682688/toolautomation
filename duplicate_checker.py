@@ -338,6 +338,7 @@ class DuplicateChecker:
         "owner_phone": "owner_phone", "zalo_group": "zalo_group", "drive_link": "drive_link",
         "notes": "notes", "pet_policy": "pet_policy",
         "ev_support": "ev_support", "surveyed": "surveyed", "foreign_guest": "foreign_guest",
+        "area": "area",
     }
 
     @classmethod
@@ -352,6 +353,8 @@ class DuplicateChecker:
             return "1" if v else "0"
         if field_name == "foreign_guest":
             return "1" if v else "0"
+        if field_name == "area":
+            return tu.norm(v)
         return tu.norm(v)
 
     def _diff_fields(self, payload: Dict, existing: Dict) -> List[str]:

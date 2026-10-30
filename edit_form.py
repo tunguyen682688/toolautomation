@@ -242,6 +242,7 @@ class RoomEditForm(QDialog):
             self.ed["room_code"] = self._line("Ví dụ: P-86")
             self.ed["unit_code"] = self._line("Số căn thực tế - khoá chống trùng")
             self.ed["floor"] = self._line("Ví dụ: 3, Lầu 2")
+            self.ed["area"] = self._line("Ví dụ: 45, 60.5")
             self.ed["room_type"] = QComboBox()
             self.ed["room_type"].setEditable(True)
             self.ed["room_type"].addItems(ROOM_TYPES)
@@ -251,8 +252,10 @@ class RoomEditForm(QDialog):
             f.addWidget(self.ed["unit_code"], 0, 3)
             f.addWidget(QLabel("Tầng:"), 1, 0)
             f.addWidget(self.ed["floor"], 1, 1)
-            f.addWidget(QLabel("Dạng phòng:"), 1, 2)
-            f.addWidget(self.ed["room_type"], 1, 3)
+            f.addWidget(QLabel("Diện tích (m2):"), 1, 2)
+            f.addWidget(self.ed["area"], 1, 3)
+            f.addWidget(QLabel("Dạng phòng:"), 2, 0)
+            f.addWidget(self.ed["room_type"], 2, 1, 1, 3)
         add_group(2, _g2)
 
         # ---------- nhóm 3: Giá & cọc ----------
@@ -596,6 +599,7 @@ class RoomEditForm(QDialog):
             "capacity": txt("capacity"),
             "ev_support": 1 if self.ed["ev_support"].isChecked() else 0,
             "foreign_guest": 1 if self.ed["foreign_guest"].isChecked() else 0,
+            "area": txt("area"),
             "pet_policy": pet_policy,
             "rating": txt("rating"),
             "owner_phone": txt("owner_phone"),

@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
 import text_utils as tu
 from google_drive import open_drive, open_phone, open_zalo
 from models import RoomFilter
-from theme import C_ACCENT, C_BORDER, status_bg, status_color, status_label
+from theme import C_ACCENT, C_BORDER, C_OK, C_ORANGE, C_WARN, C_DANGER, C_MUTED, \
+    status_bg, status_color, status_label
 
 
 # ------------------------------------------------------------------ layout tự bọc dòng
@@ -269,9 +270,10 @@ class BuildingCard(QFrame):
         lay.setSpacing(7)
 
         top = QHBoxLayout()
-        top.setSpacing(8)
-        code = QLabel(f"<b>{b.get('code', '')}</b>")
-        code.setStyleSheet(f"color:{C_ACCENT}; background:transparent; font-size:12px;")
+        top.setSpacing(10)
+        code = QLabel(b.get('code', ''))
+        code.setStyleSheet(f"font-size:12px; font-weight:800; color:{C_ACCENT}; background:transparent;")
+        code.setFixedWidth(34)
         top.addWidget(code)
         addr = QLabel(f"<b style='font-size:15px'>{b.get('display', '')}</b>")
         addr.setTextFormat(Qt.RichText)
@@ -283,40 +285,42 @@ class BuildingCard(QFrame):
         owner = QLabel(f"👤 {b.get('owner_name') or '—'} &nbsp;·&nbsp; 📞 {b.get('phone') or '—'}")
         owner.setTextFormat(Qt.RichText)
         owner.setObjectName("Muted")
-        owner.setStyleSheet("background:transparent; font-size:12px;")
+        owner.setStyleSheet("background:transparent; font-size:12px; color:#6B7280;")
         owner.setWordWrap(True)
         lay.addWidget(owner)
 
         # chip số phòng
         chips = QHBoxLayout()
-        chips.setSpacing(6)
-        chips.addWidget(self._chip(f"Trống {b.get('rooms_vacant', 0)}", "#16A34A", "vacant"))
-        chips.addWidget(self._chip(f"Trả cọc/giữ {b.get('rooms_deposit', 0)}", "#F97316",
-                                   ["deposit", "holding"]))
-        chips.addWidget(self._chip(f"Thuê {b.get('rooms_rented', 0)}", "#DC2626", "rented"))
-        chips.addWidget(self._chip(f"Sắp trống {b.get('rooms_soon', 0)}", "#EAB308", "soon_vacant"))
+        chips.setSpacing(8)
+        chips.addWidget(self._chip(f"Trống {b.get('rooms_vacant', 0)}", "vacant"))
+        chips.addWidget(self._chip(f"Cọc/giữ {b.get('rooms_deposit', 0)}", "deposit"))
+        chips.addWidget(self._chip(f"Thuê {b.get('rooms_rented', 0)}", "rented"))
+        chips.addWidget(self._chip(f"Sắp trống {b.get('rooms_soon', 0)}", "soon_vacant"))
         total = QLabel(f"Σ {b.get('rooms_total', 0)}")
-        total.setStyleSheet("background:transparent; color:#64748B; font-weight:700; padding:4px 6px;")
+        total.setStyleSheet("background:transparent; color:#111827; font-weight:800; padding:4px 10px;")
         chips.addWidget(total)
         chips.addStretch(1)
         lay.addLayout(chips)
 
-        meta = QLabel(f"Xe điện: {b.get('ev_policy') or '—'} &nbsp;·&nbsp; "
-                      f"Pet: {b.get('pet_policy') or '—'}")
+        meta = QLabel(f"⚡ {b.get('ev_policy') or '—'} &nbsp;·&nbsp; 🐾 {b.get('pet_policy') or '—'}")
         meta.setTextFormat(Qt.RichText)
         meta.setObjectName("Muted")
-        meta.setStyleSheet("background:transparent; font-size:11.5px;")
+        meta.setStyleSheet("background:transparent; font-size:11.5px; color:#6B7280;")
         meta.setWordWrap(True)
         lay.addWidget(meta)
 
         actions = QHBoxLayout()
-        actions.setSpacing(6)
-        btn_rooms = QPushButton("📋 Danh sách phòng")
-        btn_rooms.setObjectName("Primary")
+        actions.setSpacing(8)
+
+        btn_rooms = QPushButton("📋 Phòng")
+        btn_rooms.setObjectName("Ghost")
+        btn_rooms.setMinimumHeight(34)
         btn_rooms.clicked.connect(self._open_rooms)
         actions.addWidget(btn_rooms)
 
         btn_edit = QPushButton("✏️ Sửa")
+        btn_edit.setObjectName("Ghost")
+        btn_edit.setMinimumHeight(34)
         btn_edit.clicked.connect(lambda: self.edit_requested.emit(self.b["id"]))
         actions.addWidget(btn_edit)
 
@@ -324,6 +328,7 @@ class BuildingCard(QFrame):
             btn_call = QToolButton()
             btn_call.setText("📞")
             btn_call.setToolTip(f"Gọi {b.get('phone')}")
+            btn_call.setStyleSheet("QToolButton { border: none; font-size: 16px; }")
             btn_call.clicked.connect(lambda: open_phone(self.b.get("phone", "")))
             actions.addWidget(btn_call)
 
@@ -331,16 +336,19 @@ class BuildingCard(QFrame):
             btn_zalo = QToolButton()
             btn_zalo.setText("💬")
             btn_zalo.setToolTip("Mở Group Zalo")
+            btn_zalo.setStyleSheet("QToolButton { border: none; font-size: 16px; }")
             btn_zalo.clicked.connect(lambda: open_zalo(self.b.get("zalo_group", "")))
             actions.addWidget(btn_zalo)
         actions.addStretch(1)
         lay.addLayout(actions)
 
-    def _chip(self, text: str, color: str, status) -> QLabel:
+    def _chip(self, text: str, color_key: str) -> QLabel:
+        color = {"vacant": C_OK, "deposit": C_ORANGE, "holding": C_WARN,
+                 "rented": C_DANGER, "soon_vacant": C_WARN}.get(color_key, C_MUTED)
         lbl = QLabel(text)
         lbl.setStyleSheet(
-            f"background:{color}1A; color:{color}; border-radius:11px; padding:4px 10px;"
-            f"font-size:11.5px; font-weight:700;"
+            f"background:{color}15; color:{color}; border-radius:20px; padding:4px 12px;"
+            f"font-size:11.5px; font-weight:700; border:1px solid {color}30;"
         )
         return lbl
 
@@ -368,29 +376,42 @@ class BuildingPage(QWidget):
 
     def _build_ui(self):
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(22, 18, 22, 18)
-        lay.setSpacing(12)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
 
-        head = QHBoxLayout()
+        # header trang (giống main_window)
+        head = QFrame()
+        head.setObjectName("Card")
+        head.setStyleSheet("QFrame#Card { background: transparent; border: none; }")
+        hl = QHBoxLayout(head)
+        hl.setContentsMargins(22, 18, 22, 16)
+        hl.setSpacing(0)
         t = QLabel("Danh mục tòa nhà & chủ nhà")
-        t.setObjectName("PageTitle")
-        head.addWidget(t)
-        head.addStretch(1)
+        t.setObjectName("PageHeaderTitle")
+        hl.addWidget(t)
+        hl.addStretch(1)
         self.btn_add = QPushButton("＋ Thêm tòa nhà")
         self.btn_add.setObjectName("Primary")
         self.btn_add.clicked.connect(self._add)
-        head.addWidget(self.btn_add)
-        lay.addLayout(head)
+        hl.addWidget(self.btn_add)
+        lay.addWidget(head)
+
+        # subtitle
+        sub = QLabel("Quản lý danh sách tòa nhà, chủ nhà và thông tin liên hệ")
+        sub.setObjectName("PageHeaderSubtitle")
+        sub.setStyleSheet("color:#6B7280; font-size:12.5px; padding:0 22px 0 22px;")
+        lay.addWidget(sub)
+        lay.addSpacing(6)
 
         filt = QFrame()
         filt.setObjectName("Toolbar")
         fl = QHBoxLayout(filt)
-        fl.setContentsMargins(12, 8, 12, 8)
-        fl.setSpacing(8)
+        fl.setContentsMargins(22, 8, 22, 8)
+        fl.setSpacing(10)
         from PySide6.QtWidgets import QLineEdit as _QLE
         self.ed_search = _QLE()
         self.ed_search.setPlaceholderText("🔎 Lọc theo địa chỉ / chủ nhà / SĐT...")
-        self.ed_search.setMinimumWidth(320)
+        self.ed_search.setMinimumWidth(340)
         self.ed_search.textChanged.connect(self._apply_filter)
         fl.addWidget(self.ed_search, 1)
         self.lbl_count = QLabel("")

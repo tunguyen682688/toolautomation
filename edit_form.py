@@ -101,7 +101,7 @@ class RoomEditForm(QDialog):
 
         self._build_header()
         self._build_banner()
-        self._build_form()
+        self._build_form_scroll()
         self._build_buttons()
 
         # debounce kiểm tra trùng
@@ -193,112 +193,139 @@ class RoomEditForm(QDialog):
         form.setHorizontalSpacing(14)
         form.setVerticalSpacing(10)
         v.addLayout(form)
-        self.layout().addWidget(box)
         return box, form
 
-    # ------------------------------------------------------------------ xây form (grid 2 cột mỗi nhóm)
-    def _build_form(self):
+    # ------------------------------------------------------------------ xây form (grid 2 cột mỗi nhóm, trong QScrollArea)
+    def _build_form_scroll(self):
         self.ed: Dict[str, QWidget] = {}
 
-        # ---------- nhóm 1: Địa chỉ (1 hàng 4 cột, giống cột Excel) ----------
-        _, f1 = self._group(1)
-        self.ed["house_number"] = self._line("Ví dụ: 86, 79/16, 371A")
-        self.ed["street"] = self._line("Ví dụ: Nguyễn Thượng Hiền")
-        self.ed["ward"] = self._line("Ví dụ: P. 13")
-        self.ed["district"] = self._line("Ví dụ: Q. Bình Thạnh cũ")
-        f1.addWidget(QLabel("Số nhà:"), 0, 0)
-        f1.addWidget(self.ed["house_number"], 0, 1)
-        f1.addWidget(QLabel("Tên đường:"), 0, 2)
-        f1.addWidget(self.ed["street"], 0, 3)
-        f1.addWidget(QLabel("Phường:"), 0, 4)
-        f1.addWidget(self.ed["ward"], 0, 5)
-        f1.addWidget(QLabel("Quận / Khu vực:"), 0, 6)
-        f1.addWidget(self.ed["district"], 0, 7)
-        f1.setColumnStretch(8, 1)   # đẩy các ô sang trái, không dồn một bên
+        # ---- container cuộn cho 8 nhóm (form không bị dài quá màn hình) ----
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background:transparent;")
+        self.layout().addWidget(scroll)
 
+        container = QWidget()
+        container.setObjectName("Card")
+        container.setStyleSheet("QWidget#Card { background:#FFFFFF; border:none; border-radius:12px; }")
+        cl = QVBoxLayout(container)
+        cl.setContentsMargins(10, 8, 10, 8)
+        cl.setSpacing(10)
+        scroll.setWidget(container)
+
+        def add_group(idx: int, build_fn):
+            box, form = self._group(idx)
+            build_fn(form)
+            form.setColumnStretch(form.columnCount() - 1, 1)  # stretch cột cuối
+            cl.addWidget(box)
+
+        # ---------- nhóm 1: Địa chỉ (1 hàng 4 cột, giống cột Excel) ----------
+        def _g1(f):
+            self.ed["house_number"] = self._line("Ví dụ: 86, 79/16, 371A")
+            self.ed["street"] = self._line("Ví dụ: Nguyễn Thượng Hiền")
+            self.ed["ward"] = self._line("Ví dụ: P. 13")
+            self.ed["district"] = self._line("Ví dụ: Q. Bình Thạnh cũ")
+            f.addWidget(QLabel("Số nhà:"), 0, 0)
+            f.addWidget(self.ed["house_number"], 0, 1)
+            f.addWidget(QLabel("Tên đường:"), 0, 2)
+            f.addWidget(self.ed["street"], 0, 3)
+            f.addWidget(QLabel("Phường:"), 0, 4)
+            f.addWidget(self.ed["ward"], 0, 5)
+            f.addWidget(QLabel("Quận / Khu vực:"), 0, 6)
+            f.addWidget(self.ed["district"], 0, 7)
+            f.setColumnStretch(8, 1)
+        add_group(1, _g1)
 
         # ---------- nhóm 2: Nhận diện ----------
-        _, f2 = self._group(2)
-        self.ed["room_code"] = self._line("Ví dụ: P-86")
-        self.ed["unit_code"] = self._line("Số căn thực tế - khoá chống trùng")
-        self.ed["floor"] = self._line("Ví dụ: 3, Lầu 2")
-        self.ed["room_type"] = QComboBox()
-        self.ed["room_type"].setEditable(True)
-        self.ed["room_type"].addItems(ROOM_TYPES)
-        f2.addWidget(QLabel("Mã phòng:"), 0, 0)
-        f2.addWidget(self.ed["room_code"], 0, 1)
-        f2.addWidget(QLabel("Số căn:"), 0, 2)
-        f2.addWidget(self.ed["unit_code"], 0, 3)
-        f2.addWidget(QLabel("Tầng:"), 1, 0)
-        f2.addWidget(self.ed["floor"], 1, 1)
-        f2.addWidget(QLabel("Dạng phòng:"), 1, 2)
-        f2.addWidget(self.ed["room_type"], 1, 3)
+        def _g2(f):
+            self.ed["room_code"] = self._line("Ví dụ: P-86")
+            self.ed["unit_code"] = self._line("Số căn thực tế - khoá chống trùng")
+            self.ed["floor"] = self._line("Ví dụ: 3, Lầu 2")
+            self.ed["room_type"] = QComboBox()
+            self.ed["room_type"].setEditable(True)
+            self.ed["room_type"].addItems(ROOM_TYPES)
+            f.addWidget(QLabel("Mã phòng:"), 0, 0)
+            f.addWidget(self.ed["room_code"], 0, 1)
+            f.addWidget(QLabel("Số căn:"), 0, 2)
+            f.addWidget(self.ed["unit_code"], 0, 3)
+            f.addWidget(QLabel("Tầng:"), 1, 0)
+            f.addWidget(self.ed["floor"], 1, 1)
+            f.addWidget(QLabel("Dạng phòng:"), 1, 2)
+            f.addWidget(self.ed["room_type"], 1, 3)
+        add_group(2, _g2)
 
         # ---------- nhóm 3: Giá & cọc ----------
-        _, f3 = self._group(3)
-        self.ed["price"] = self._line("Ví dụ: 7000000 hoặc 7.5tr")
-        self.ed["deposit"] = self._line("Ví dụ: 7000000")
-        f3.addWidget(QLabel("Giá thuê (VNĐ):"), 0, 0)
-        f3.addWidget(self.ed["price"], 0, 1)
-        f3.addWidget(QLabel("Tiền cọc (VNĐ):"), 1, 0)
-        f3.addWidget(self.ed["deposit"], 1, 1)
+        def _g3(f):
+            self.ed["price"] = self._line("Ví dụ: 7000000 hoặc 7.5tr")
+            self.ed["deposit"] = self._line("Ví dụ: 7000000")
+            f.addWidget(QLabel("Giá thuê (VNĐ):"), 0, 0)
+            f.addWidget(self.ed["price"], 0, 1)
+            f.addWidget(QLabel("Tiền cọc (VNĐ):"), 1, 0)
+            f.addWidget(self.ed["deposit"], 1, 1)
+        add_group(3, _g3)
 
         # ---------- nhóm 4: Tiện ích ----------
-        _, f4 = self._group(4)
-        self.ed["capacity"] = self._line("Ví dụ: 2 Ng/2 Xe")
-        self.ed["ev_support"] = QCheckBox("⚡ Hỗ trợ sạc xe điện")
-        self.ed["foreign_guest"] = QCheckBox("🌏 Nhận khách nước ngoài")
-        f4.addWidget(QLabel("Tối đa (người/xe):"), 0, 0)
-        f4.addWidget(self.ed["capacity"], 0, 1)
-        f4.addWidget(self.ed["ev_support"], 1, 0, 1, 2)
-        f4.addWidget(self.ed["foreign_guest"], 1, 2, 1, 2)
+        def _g4(f):
+            self.ed["capacity"] = self._line("Ví dụ: 2 Ng/2 Xe")
+            self.ed["ev_support"] = QCheckBox("⚡ Hỗ trợ sạc xe điện")
+            self.ed["foreign_guest"] = QCheckBox("🌏 Nhận khách nước ngoài")
+            f.addWidget(QLabel("Tối đa (người/xe):"), 0, 0)
+            f.addWidget(self.ed["capacity"], 0, 1)
+            f.addWidget(self.ed["ev_support"], 1, 0, 1, 2)
+            f.addWidget(self.ed["foreign_guest"], 1, 2, 1, 2)
+        add_group(4, _g4)
 
         # ---------- nhóm 5: Chính sách ----------
-        _, f5 = self._group(5)
-        self.ed["pet_policy"] = QComboBox()
-        self.ed["pet_policy"].setEditable(True)
-        self.ed["pet_policy"].addItems(["Cho nuôi Mèo", "Cho nuôi Chó",
-                                        "Cho nuôi (chó/mèo)", "Không nuôi", ""])
-        self.ed["pet_note"] = self._line("Chính sách chi tiết (giữ nguyên văn bản gốc)")
-        f5.addWidget(QLabel("Nuôi thú cưng:"), 0, 0)
-        f5.addWidget(self.ed["pet_policy"], 0, 1)
-        f5.addWidget(QLabel("Ghi chú chính sách:"), 1, 0)
-        f5.addWidget(self.ed["pet_note"], 1, 1)
+        def _g5(f):
+            self.ed["pet_policy"] = QComboBox()
+            self.ed["pet_policy"].setEditable(True)
+            self.ed["pet_policy"].addItems(["Cho nuôi Mèo", "Cho nuôi Chó",
+                                            "Cho nuôi (chó/mèo)", "Không nuôi", ""])
+            self.ed["pet_note"] = self._line("Chính sách chi tiết (giữ nguyên văn bản gốc)")
+            f.addWidget(QLabel("Nuôi thú cưng:"), 0, 0)
+            f.addWidget(self.ed["pet_policy"], 0, 1)
+            f.addWidget(QLabel("Ghi chú chính sách:"), 1, 0)
+            f.addWidget(self.ed["pet_note"], 1, 1)
+        add_group(5, _g5)
 
         # ---------- nhóm 6: Liên hệ ----------
-        _, f6 = self._group(6)
-        self.ed["owner_phone"] = self._line("Ví dụ: 0868328147")
-        self.ed["zalo_group"] = self._line("zalo.me/g/...")
-        f6.addWidget(QLabel("SĐT chủ / admin:"), 0, 0)
-        f6.addWidget(self.ed["owner_phone"], 0, 1)
-        f6.addWidget(QLabel("Group Zalo:"), 1, 0)
-        f6.addWidget(self.ed["zalo_group"], 1, 1)
+        def _g6(f):
+            self.ed["owner_phone"] = self._line("Ví dụ: 0868328147")
+            self.ed["zalo_group"] = self._line("zalo.me/g/...")
+            f.addWidget(QLabel("SĐT chủ / admin:"), 0, 0)
+            f.addWidget(self.ed["owner_phone"], 0, 1)
+            f.addWidget(QLabel("Group Zalo:"), 1, 0)
+            f.addWidget(self.ed["zalo_group"], 1, 1)
+        add_group(6, _g6)
 
         # ---------- nhóm 7: Media ----------
-        _, f7 = self._group(7)
-        self.ed["drive_link"] = self._line("drive.google.com/folder/...")
-        self.ed["rating"] = self._line("Ví dụ: ⭐⭐⭐⭐ Ban công rộng")
-        f7.addWidget(QLabel("Link Drive media:"), 0, 0)
-        f7.addWidget(self.ed["drive_link"], 0, 1)
-        f7.addWidget(QLabel("Đánh giá / độ đẹp:"), 1, 0)
-        f7.addWidget(self.ed["rating"], 1, 1)
+        def _g7(f):
+            self.ed["drive_link"] = self._line("drive.google.com/folder/...")
+            self.ed["rating"] = self._line("Ví dụ: ⭐⭐⭐⭐ Ban công rộng")
+            f.addWidget(QLabel("Link Drive media:"), 0, 0)
+            f.addWidget(self.ed["drive_link"], 0, 1)
+            f.addWidget(QLabel("Đánh giá / độ đẹp:"), 1, 0)
+            f.addWidget(self.ed["rating"], 1, 1)
+        add_group(7, _g7)
 
         # ---------- nhóm 8: Ghi chú & trạng thái ----------
-        _, f8 = self._group(8)
-        self.ed["status"] = QComboBox()
-        for k in RoomStatus.ORDER:
-            self.ed["status"].addItem(f"● {RoomStatus.label(k)}", k)
-        self.ed["surveyed"] = QCheckBox("📸 Đã khảo sát (có ảnh/video)")
-        self.ed["notes"] = QPlainTextEdit()
-        self.ed["notes"].setMinimumHeight(72)
-        self.ed["notes"].setPlaceholderText(
-            "Chính sách, nội thất, tiện ích, ghi chú sale...")
-        f8.addWidget(QLabel("Trạng thái:"), 0, 0)
-        f8.addWidget(self.ed["status"], 0, 1)
-        f8.addWidget(QLabel("Khảo sát:"), 1, 0)
-        f8.addWidget(self.ed["surveyed"], 1, 1)
-        f8.addWidget(QLabel("Ghi chú:"), 2, 0)
-        f8.addWidget(self.ed["notes"], 2, 1)
+        def _g8(f):
+            self.ed["status"] = QComboBox()
+            for k in RoomStatus.ORDER:
+                self.ed["status"].addItem(f"● {RoomStatus.label(k)}", k)
+            self.ed["surveyed"] = QCheckBox("📸 Đã khảo sát (có ảnh/video)")
+            self.ed["notes"] = QPlainTextEdit()
+            self.ed["notes"].setMinimumHeight(72)
+            self.ed["notes"].setPlaceholderText(
+                "Chính sách, nội thất, tiện ích, ghi chú sale...")
+            f.addWidget(QLabel("Trạng thái:"), 0, 0)
+            f.addWidget(self.ed["status"], 0, 1)
+            f.addWidget(QLabel("Khảo sát:"), 1, 0)
+            f.addWidget(self.ed["surveyed"], 1, 1)
+            f.addWidget(QLabel("Ghi chú:"), 2, 0)
+            f.addWidget(self.ed["notes"], 2, 1)
+        add_group(8, _g8)
 
     def _line(self, placeholder: str = "") -> QLineEdit:
         ed = QLineEdit()

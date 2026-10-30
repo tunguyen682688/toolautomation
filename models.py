@@ -194,9 +194,13 @@ class Room:
     created_at: str = ""
     updated_at: str = ""
     updated_by: str = ""
-    # được join thêm từ buildings (không nằm trong DB)
+    # được join thêm từ buildings (không nằm trong DB rooms)
     address: str = ""
     building_code: str = ""
+    house_number: str = ""
+    street: str = ""
+    ward: str = ""
+    district: str = ""
 
     @classmethod
     def from_row(cls, row) -> "Room":
@@ -206,7 +210,7 @@ class Room:
 
     def to_dict(self) -> Dict:
         d = asdict(self)
-        for k in ("address", "building_code"):
+        for k in ("address", "building_code", "house_number", "street", "ward", "district"):
             d.pop(k, None)
         return d
 
@@ -240,22 +244,26 @@ ROOM_COLUMNS: List[Dict] = [
 ]
 
 # Cột bảng phòng hiển thị trên giao diện (order + tiêu đề)
+# Địa chỉ TÁCH RIÊNG 4 cột giống file Excel: Số Nhà | Tên Đường | Phường | Quận/Khu Vực
 ROOM_TABLE_COLUMNS: List[Tuple[str, str, int]] = [
-    ("room_code",   "Mã phòng",   105),
-    ("status",      "Trạng thái",  125),
-    ("address",     "Địa chỉ tòa nhà", 250),
-    ("unit_code",   "Số căn",      85),
-    ("floor",       "Tầng",        55),
-    ("room_type",   "Dạng phòng",  105),
-    ("price",       "Giá thuê",    105),
-    ("deposit",     "Tiền cọc",    100),
-    ("area",        "Diện tích",    80),
-    ("surveyed",    "Khảo sát",     85),
-    ("ev_support",  "Xe điện",      75),
-    ("foreign_guest","Khách NGO",    75),
-    ("capacity",    "Người/Xe",     90),
-    ("owner_phone", "SĐT chủ nhà", 155),
-    ("updated_at",  "Cập nhật",    140),
+    ("room_code",    "Mã phòng",       105),
+    ("status",       "Trạng thái",      125),
+    ("house_number", "Số nhà",           70),
+    ("street",       "Tên đường",       150),   # cột co giãn (stretch)
+    ("ward",         "Phường",           70),
+    ("district",     "Quận / Khu vực",  105),
+    ("unit_code",    "Số căn",           85),
+    ("floor",        "Tầng",             55),
+    ("room_type",    "Dạng phòng",      105),
+    ("price",        "Giá thuê",        105),
+    ("deposit",      "Tiền cọc",        100),
+    ("area",         "Diện tích",        80),
+    ("surveyed",     "Khảo sát",         85),
+    ("ev_support",   "Xe điện",          75),
+    ("foreign_guest","Khách NGO",        75),
+    ("capacity",     "Người/Xe",         90),
+    ("owner_phone",  "SĐT chủ nhà",     155),
+    ("updated_at",   "Cập nhật",        140),
 ]
 
 BUILDING_COLUMNS: List[Dict] = [

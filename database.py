@@ -691,7 +691,9 @@ class Database:
 
 
 _ROOM_SELECT = (
-    "SELECT r.*, b.display AS address, b.code AS building_code "
+    "SELECT r.*, b.display AS address, b.code AS building_code, "
+    "b.house_number AS house_number, b.street AS street, "
+    "b.ward AS ward, b.district AS district "
     "FROM rooms r LEFT JOIN buildings b ON b.id = r.building_id"
 )
 

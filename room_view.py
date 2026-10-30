@@ -143,6 +143,8 @@ class RoomTableModel(QAbstractTableModel):
             return (v or "")[:16]
         if key == "address":
             return v or "—"
+        if key in ("house_number", "street", "ward", "district"):
+            return v or "—"
         return str(v) if v not in (None, "") else ""
 
     def setData(self, index, value, role=Qt.EditRole):
@@ -341,7 +343,7 @@ class RoomPage(QWidget):
         hdr.setSectionResizeMode(QHeaderView.Interactive)
         for i, (_, _, w) in enumerate(ROOM_TABLE_COLUMNS):
             self.table.setColumnWidth(i, w)
-        hdr.setSectionResizeMode(2, QHeaderView.Stretch)     # cột địa chỉ co giãn
+        hdr.setSectionResizeMode(3, QHeaderView.Stretch)     # cột tên đường co giãn
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._context_menu)
         self.table.doubleClicked.connect(lambda idx: self._open_detail(self.model.room_id_at(idx.row())))

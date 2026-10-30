@@ -12,8 +12,9 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFrame, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSpinBox, QSplitter,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QFrame, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
+    QMenu, QMessageBox, QPushButton, QSpinBox, QSplitter,
     QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolButton,
     QVBoxLayout, QWidget,
 )
@@ -184,6 +185,16 @@ class RoomPage(QWidget):
         self.lbl_title.setObjectName("PageTitle")
         head.addWidget(self.lbl_title)
         head.addStretch(1)
+        self.btn_undo = QPushButton("↩ Hoàn tác (Ctrl+Z)")
+        self.btn_undo.setObjectName("Ghost")
+        self.btn_undo.setToolTip("Hoàn tác thao tác sửa/xóa/thêm gần nhất")
+        self.btn_undo.clicked.connect(self._undo)
+        head.addWidget(self.btn_undo)
+        self.btn_batch = QPushButton("🛠 Sửa hàng loạt")
+        self.btn_batch.setObjectName("Ghost")
+        self.btn_batch.setToolTip("Chọn nhiều dòng → thay đổi trạng thái/giá/chính sách 1 lúc")
+        self.btn_batch.clicked.connect(self._batch_edit)
+        head.addWidget(self.btn_batch)
         self.btn_new = QPushButton("＋ Thêm phòng")
         self.btn_new.setObjectName("Primary")
         self.btn_new.clicked.connect(self._add_room)
@@ -262,7 +273,7 @@ class RoomPage(QWidget):
         self.table.setModel(self.model)
         self.table.setItemDelegate(RoomDelegate(self.table))
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)  # chọn nhiều dòng
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(False)
         self.table.setWordWrap(False)
@@ -528,6 +539,62 @@ class RoomPage(QWidget):
             return
         self.refresh()
 
+    # ------------------------------------------------------------------ chọn nhiều / hoàn tác / sửa hàng loạt
+    def _selected_ids(self) -> List[str]:
+        idxs = self.table.selectionModel().selectedRows()
+        return [self.model.room_id_at(i.row()) for i in idxs if i.isValid()]
+
+    def _undo(self):
+        """Hoàn tác thao tác gần nhất (Ctrl+Z)."""
+        actor = self.mgr.settings.get("user_name") or ""
+        res = self.mgr.undo_last(actor=actor)
+        if res["ok"]:
+            self.refresh()
+            # toast qua thanh trạng thái
+            mw = self.window()
+            lbl = getattr(mw, "lbl_status", None)
+            if lbl:
+                lbl.setText(res["message"])
+                QTimer.singleShot(3000, lambda: lbl.setText("Sẵn sàng"))
+        else:
+            QMessageBox.information(self, "Hoàn tác", res["message"])
+
+    def _batch_edit(self):
+        """Sửa nhiều phòng được chọn cùng 1 lúc (xác nhận + xem trước)."""
+        ids = self._selected_ids()
+        if not ids:
+            QMessageBox.information(self, "Sửa hàng loạt",
+                                    "Vui lòng chọn ít nhất 1 dòng trong bảng (bấm Ctrl để chọn nhiều).")
+            return
+        dlg = _BatchEditDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        field, value = dlg.result()
+        actor = self.mgr.settings.get("user_name") or "Admin"
+        ok = fail = 0
+        details: List[str] = []
+        for rid in ids:
+            try:
+                if field == "status":
+                    self.mgr.change_status(rid, value, actor=actor,
+                                           note=f"Sửa hàng loạt ({len(ids)} phòng)")
+                else:
+                    self.mgr.update_room(rid, {field: value}, actor=actor,
+                                         note=f"Sửa hàng loạt ({len(ids)} phòng)")
+                ok += 1
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                r = self.mgr.room(rid) or {}
+                details.append(f"• {r.get('room_code', rid)}: {e}")
+        self.refresh()
+        msg = f"Đã sửa {ok}/{len(ids)} phòng" + (f", thất bại {fail}" if fail else "")
+        if details:
+            msg += "\n" + "\n".join(details[:10])
+            if fail > 10:
+                msg += f"\n... và {fail-10} dòng khác"
+        QMessageBox.information(self, "Sửa hàng loạt", msg)
+
+    # ------------------------------------------------------------------ context menu (giữ nguyên)
     def _context_menu(self, pos):
         rid = self._current_room_id()
         if not rid:
@@ -598,3 +665,92 @@ class RoomPage(QWidget):
             self.reset_filters()
             self.refresh()
             self._open_detail(ex["id"])
+
+
+# ------------------------------------------------------------------ dialog sửa hàng loạt
+class _BatchEditDialog(QDialog):
+    """Chọn 1 trường + giá trị -> áp dụng cho nhiều phòng đã chọn."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Sửa hàng loạt phòng")
+        self.setMinimumWidth(420)
+        self.field = None
+        self.value = None
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 14, 16, 12)
+        lay.setSpacing(10)
+
+        form = QFormLayout()
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
+
+        self.cb_field = QComboBox()
+        self.cb_field.addItems([
+            "Trạng thái (status)",
+            "Giá thuê (price)",
+            "Tiền cọc (deposit)",
+            "Loại phòng (room_type)",
+            "Sức chứa (capacity)",
+            "Xe điện (ev_support)",
+            "Thú cưng (pet_policy)",
+        ])
+        form.addRow("Trường cần sửa:", self.cb_field)
+
+        self.ed_value = QLineEdit()
+        self.ed_value.setPlaceholderText("Nhập giá trị mới...")
+        self.cb_field.currentIndexChanged.connect(self._on_field_changed)
+        self._on_field_changed(0)
+        form.addRow("Giá trị mới:", self.ed_value)
+        lay.addLayout(form)
+
+        hint = QLabel(
+            "<b>Lưu ý:</b> thay đổi sẽ áp dụng cho <b>tất cả</b> dòng bạn đã chọn trong bảng. "
+            "Trạng thái sẽ ghi lịch sử tự động.")
+        hint.setObjectName("Muted")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self._accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    def _on_field_changed(self, idx: int):
+        placeholders = {
+            0: "Ví dụ: rented, vacant, deposit, soon_vacant, new",
+            1: "Ví dụ: 7000000 hoặc 7.5tr",
+            2: "Ví dụ: 7000000",
+            3: "Ví dụ: Phòng trọ, Studio, Căn chung cư",
+            4: "Ví dụ: 2 Ng/2 Xe",
+            5: "Ví dụ: 1 (có) / 0 (không)",
+            6: "Ví dụ: Cho nuôi Chó / Không nuôi",
+        }
+        self.ed_value.setPlaceholderText(placeholders.get(idx, "Nhập giá trị..."))
+
+    def _accept(self):
+        field_keys = ["status", "price", "deposit", "room_type", "capacity",
+                      "ev_support", "pet_policy"]
+        self.field = field_keys[self.cb_field.currentIndex()]
+        self.value = self.ed_value.text().strip()
+        if not self.value:
+            QMessageBox.warning(self, "Thiếu giá trị", "Vui lòng nhập giá trị mới.")
+            return
+        # validate nhanh
+        if self.field == "status":
+            from models import RoomStatus
+            if RoomStatus.from_text(self.value) not in RoomStatus.LABEL:
+                QMessageBox.warning(self, "Giá trị không hợp lệ",
+                                    f"Trạng thái phải là một trong: {', '.join(RoomStatus.ORDER)}")
+                return
+        if self.field in ("price", "deposit"):
+            import text_utils as tu
+            if tu.normalize_price(self.value) is None:
+                QMessageBox.warning(self, "Giá trị không hợp lệ",
+                                    "Vui lòng nhập số tiền (ví dụ 7000000 hoặc 7.5tr).")
+                return
+        self.accept()
+
+    def result(self):
+        return self.field, self.value

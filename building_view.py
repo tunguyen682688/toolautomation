@@ -7,16 +7,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QModelIndex, QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
-    QLineEdit, QLayout, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
-    QStyle, QToolButton, QVBoxLayout, QWidget,
+    QAbstractItemView, QDialog, QDialogButtonBox, QFormLayout, QFrame,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QLayout, QListView,
+    QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSplitter,
+    QStyle, QTableView, QToolButton, QVBoxLayout, QWidget,
 )
 
 import text_utils as tu
 from google_drive import open_drive, open_phone, open_zalo
-from theme import C_ACCENT, C_BORDER, status_color
+from models import RoomFilter
+from theme import C_ACCENT, C_BORDER, status_bg, status_color, status_label
 
 
 # ------------------------------------------------------------------ layout tự bọc dòng
@@ -141,6 +144,103 @@ class BuildingForm(QDialog):
         return {k: ed.text().strip() for k, ed in self.fields.items()}
 
 
+# ------------------------------------------------------------------ panel phòng nhanh bên phải (split view)
+class RoomsInlinePanel(QFrame):
+    """Hiển thị NGAY danh sách phòng của tòa đang chọn (inline, không nhảy trang)."""
+
+    open_detail = Signal(str)   # room_id
+    open_full_table = Signal(dict)   # filter dict -> mở trang Phòng đầy đủ
+
+    def __init__(self, manager, parent=None):
+        super().__init__(parent)
+        self.mgr = manager
+        self.building = None
+        self.setObjectName("Card")
+        self.setMinimumWidth(300)
+        self.setMaximumWidth(460)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(8)
+
+        self.lbl_title = QLabel("Chọn một tòa nhà")
+        self.lbl_title.setObjectName("SectionTitle")
+        lay.addWidget(self.lbl_title)
+
+        self.lbl_sub = QLabel("Bấm thẻ tòa nhà ở bên trái để xem phòng.")
+        self.lbl_sub.setObjectName("Muted")
+        self.lbl_sub.setWordWrap(True)
+        lay.addWidget(self.lbl_sub)
+
+        # danh sách phòng ngắn gọn (1 dòng mỗi phòng: mã + trạng thái + giá)
+        self.model = QStandardItemModel()
+        self.list = QListView()
+        self.list.setModel(self.model)
+        self.list.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.list.setAlternatingRowColors(True)
+        self.list.clicked.connect(self._item_clicked)
+        lay.addWidget(self.list, 1)
+
+        self.btn_empty = QPushButton("Chưa có phòng nào")
+        self.btn_empty.setEnabled(False)
+        lay.addWidget(self.btn_empty)
+
+        btn_open = QPushButton("📋 Mở bảng phòng đầy đủ")
+        btn_open.setObjectName("Primary")
+        btn_open.clicked.connect(self._open_full)
+        lay.addWidget(btn_open)
+
+    def set_building(self, b: Dict[str, Any] | None):
+        self.building = b
+        self.model.clear()
+        if not b:
+            self.lbl_title.setText("Chọn một tòa nhà")
+            self.lbl_sub.setText("Bấm thẻ tòa nhà ở bên trái để xem phòng.")
+            self.btn_empty.setEnabled(False)
+            return
+        self.lbl_title.setText(f"{b.get('code','')} — {b.get('display','')}")
+        owner = b.get("owner_name") or "—"
+        phone = b.get("phone") or "—"
+        self.lbl_sub.setText(f"👤 {owner} · 📞 {phone} · bấm phòng để xem chi tiết")
+        rooms = self.mgr.rooms("", RoomFilter(building_id=b["id"])) or []
+        if not rooms:
+            self.lbl_sub.setText(self.lbl_sub.text() + " (chưa có phòng)")
+            self.btn_empty.setText("Thêm phòng đầu tiên")
+            self.btn_empty.setEnabled(True)
+            self.btn_empty.clicked.disconnect()
+            self.btn_empty.clicked.connect(lambda: self.open_full_table.emit(
+                {"filter": RoomFilter(building_id=b["id"]), "title": b.get("display", "")}))
+            return
+        self.btn_empty.hide()
+        for r in rooms:
+            st = r.get("status", "")
+            item = QStandardItem(
+                f"{r.get('room_code') or '(chưa có mã)'}   ●   {status_label(st)}   "
+                f"| {tu.format_money(r.get('price'))}₫")
+            item.setData(QColor(status_bg(st)), 5)  # UserRole-ish custom
+            item.setData(st, 6)
+            item.setForeground(QColor(status_color(st)))
+            item.setEditable(False)
+            self.model.appendRow(item)
+        self.lbl_sub.setText(
+            f"{len(rooms)} phòng · " + self.lbl_sub.text().split("·")[0].strip())
+
+    def _item_clicked(self, index: QModelIndex):
+        st = index.data(6)
+        rooms = self.mgr.rooms("", RoomFilter(building_id=self.building["id"])) or []
+        rid = rooms[index.row()]["id"] if index.row() < len(rooms) else ""
+        if rid:
+            self.open_detail.emit(rid)
+
+    def _open_full(self):
+        if not self.building:
+            return
+        self.open_full_table.emit({
+            "filter": RoomFilter(building_id=self.building["id"]),
+            "title": self.building.get("display", ""),
+        })
+
+
 # ------------------------------------------------------------------ thẻ tòa nhà
 class BuildingCard(QFrame):
     open_rooms = Signal(dict)          # filter
@@ -236,9 +336,7 @@ class BuildingCard(QFrame):
         return lbl
 
     def _open_rooms(self):
-        from models import RoomFilter
-        self.open_rooms.emit({"filter": RoomFilter(building_id=self.b["id"]),
-                              "title": self.b.get("display", "")})
+        self.open_rooms.emit({"building": self.b, "title": self.b.get("display", "")})
 
     def mousePressEvent(self, ev):
         if ev.button() == Qt.LeftButton:
@@ -248,13 +346,16 @@ class BuildingCard(QFrame):
 
 # ------------------------------------------------------------------ trang tòa nhà
 class BuildingPage(QWidget):
-    open_rooms = Signal(dict)
+    building_selected = Signal(dict)   # click thẻ -> hiển thị phòng inline bên phải
+    open_detail = Signal(str)          # click 1 phòng trong panel nhanh -> chi tiết
+    open_rooms = Signal(dict)          # "Mở bảng đầy đủ" -> điều hướng trang Phòng
 
     def __init__(self, manager, parent=None):
         super().__init__(parent)
         self.mgr = manager
         self._cards: List[BuildingCard] = []
         self._build_ui()
+        self.building_selected.connect(lambda d: self.panel.set_building(d.get("building")))
 
     def _build_ui(self):
         lay = QVBoxLayout(self)
@@ -288,6 +389,15 @@ class BuildingPage(QWidget):
         fl.addWidget(self.lbl_count)
         lay.addWidget(filt)
 
+        # ---- SPLIT VIEW: trái thẻ tòa | phải danh sách phòng của tòa được chọn
+        split = QSplitter(Qt.Horizontal)
+        split.setChildrenCollapsible(False)
+
+        # trái: lưới thẻ tòa nhà
+        left = QWidget()
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.setSpacing(0)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -296,7 +406,19 @@ class BuildingPage(QWidget):
         self.flow.setContentsMargins(0, 0, 6, 0)
         self.container.setLayout(self.flow)
         scroll.setWidget(self.container)
-        lay.addWidget(scroll, 1)
+        ll.addWidget(scroll, 1)
+        split.addWidget(left)
+
+        # phải: panel phòng nhanh của tòa đang chọn
+        self.panel = RoomsInlinePanel(self.mgr)
+        self.panel.open_detail.connect(self.open_detail.emit)
+        self.panel.open_full_table.connect(self.open_rooms.emit)
+        split.addWidget(self.panel)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 0)
+        split.setSizes([700, 380])
+
+        lay.addWidget(split, 1)
 
     # ------------------------------------------------------------------ dữ liệu
     def refresh(self, text: str = ""):
@@ -315,7 +437,7 @@ class BuildingPage(QWidget):
             self.flow.addWidget(empty)
         for b in buildings:
             card = BuildingCard(b)
-            card.open_rooms.connect(self.open_rooms.emit)
+            card.open_rooms.connect(self.building_selected.emit)
             card.edit_requested.connect(self._edit)
             self.flow.addWidget(card)
             self._cards.append(card)

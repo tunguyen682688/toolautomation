@@ -28,3 +28,5 @@ config/settings_*.json
 build/
 dist/
 *.spec.bak
+
+# Loi tu lenh echo build.bat (redirect ->) DEV/ PROD/ STAGING/

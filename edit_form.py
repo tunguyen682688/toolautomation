@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+import json
+
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
@@ -95,8 +97,17 @@ class RoomEditForm(QDialog):
         self._debounce.setInterval(350)
         self._debounce.timeout.connect(self._run_check)
 
+        # --- AUTO DRAFT: tự lưu nháp nhập liệu (tránh mất khi tắt app nhầm) ---
+        self._draft_key = "room_draft"
+        self._draft_timer = QTimer(self)
+        self._draft_timer.setSingleShot(True)
+        self._draft_timer.setInterval(2000)
+        self._draft_timer.timeout.connect(self._save_draft)
+
         self._seed_values()
         self._connect_autofill()
+        if self.is_new:
+            self._apply_draft()   # nếu có nháp lưu từ lần trước -> điền vào form
 
     # ------------------------------------------------------------------ UI
     def _build_banner(self):
@@ -266,6 +277,18 @@ class RoomEditForm(QDialog):
             if isinstance(w, QLineEdit):
                 w.textChanged.connect(self._schedule_check)
 
+        # lưu nháp tự động khi thay đổi bất kỳ trường nào (debounce 2s)
+        for w in self.ed.values():
+            if isinstance(w, (QLineEdit, QComboBox, QCheckBox, QPlainTextEdit)):
+                if isinstance(w, QLineEdit):
+                    w.textChanged.connect(self._schedule_draft)
+                elif isinstance(w, QComboBox):
+                    w.currentTextChanged.connect(self._schedule_draft)
+                elif isinstance(w, QCheckBox):
+                    w.toggled.connect(self._schedule_draft)
+                else:
+                    w.textChanged.connect(self._schedule_draft)
+
     def _maybe_autofill(self):
         """Tự điền chủ nhà / SĐT / Zalo / chính sách từ tòa đã có."""
         if self.is_new is False:
@@ -337,6 +360,77 @@ class RoomEditForm(QDialog):
             f"<span style='color:#475569;'>{body}</span>")
         self.banner.show()
 
+    # ------------------------------------------------------------------ nháp tự động (draft)
+    def _schedule_draft(self, *_):
+        self._draft_timer.start()
+
+    def _draft_payload(self) -> Dict[str, Any]:
+        """Lấy giá trị THẢO (chưa normalize) để lưu nháp - tránh lỗi nếu giá nhập sai."""
+        out: Dict[str, Any] = {}
+        for k, w in self.ed.items():
+            if isinstance(w, QLineEdit):
+                out[k] = w.text().strip()
+            elif isinstance(w, QComboBox):
+                out[k] = w.currentText().strip()
+            elif isinstance(w, QCheckBox):
+                out[k] = 1 if w.isChecked() else 0
+            elif isinstance(w, QPlainTextEdit):
+                out[k] = w.toPlainText().strip()
+        out["status"] = self.ed["status"].currentData() or "new"
+        return out
+
+    def _save_draft(self):
+        if not self.is_new:
+            return                                # chỉ lưu nháp cho form thêm mới
+        p = self._draft_payload()
+        # không lưu nếu form còn trống hoàn toàn
+        if not any(str(v) for v in p.values()):
+            return
+        try:
+            self.mgr.settings.set(self._draft_key,
+                                  json.dumps(p, ensure_ascii=False), save=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _apply_draft(self):
+        """Điền nháp lưu từ lần trước vào form (nếu có)."""
+        raw = self.mgr.settings.get(self._draft_key)
+        if not raw:
+            return
+        try:
+            p = json.loads(raw)
+        except Exception:
+            return
+        if not isinstance(p, dict) or not any(str(v) for v in p.values()):
+            return
+        self.banner_label.setText(
+            "<span style='color:#64748B;'>📋 Phát hiện nháp nhập liệu chưa hoàn tất - "
+            "đã tự điền vào form.</span>")
+        self.banner.show()
+        for k, v in p.items():
+            if k not in self.ed:
+                continue
+            w = self.ed[k]
+            try:
+                if isinstance(w, QLineEdit):
+                    w.setText(str(v or ""))
+                elif isinstance(w, QComboBox):
+                    w.setCurrentText(str(v or ""))
+                elif isinstance(w, QCheckBox):
+                    w.setChecked(bool(int(v or 0)))
+                elif isinstance(w, QPlainTextEdit):
+                    w.setPlainText(str(v or ""))
+            except Exception:  # noqa: BLE001
+                pass
+        # focus vào mã phòng để người dùng tiếp tục nhập
+        self.ed["room_code"].setFocus()
+
+    def _clear_draft(self):
+        try:
+            self.mgr.settings.set(self._draft_key, "", save=True)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ------------------------------------------------------------------ lưu
     def payload(self) -> Dict[str, Any]:
         def txt(k):
@@ -407,6 +501,7 @@ class RoomEditForm(QDialog):
             return
 
         self.saved.emit(room["id"])
+        self._clear_draft()   # đã lưu xong -> xóa nháp
         if more:
             self.save_and_continue.emit(payload)
             # reset form cho lần nhập kế tiếp (giữ nguyên địa chỉ - nhập nhiều căn cùng tòa)

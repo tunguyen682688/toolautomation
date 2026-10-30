@@ -11,6 +11,8 @@ Thiết kế:
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import sqlite3
 import threading
 import time
@@ -155,6 +157,19 @@ CREATE TABLE IF NOT EXISTS id_map (            -- ánh xạ ID nội bộ <-> d�
     remote_at   TEXT NOT NULL DEFAULT '',
     updated_at  TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS undo_log (          -- lịch sử hoàn tác (mỗi dòng = 1 thay đổi có thể Ctrl+Z)
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id     TEXT NOT NULL,
+    old_values  TEXT NOT NULL DEFAULT '{}',    -- JSON các trường TRƯỚC khi đổi
+    action      TEXT NOT NULL DEFAULT 'update',-- update | status | delete | restore | batch
+    actor       TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT '',
+    undone      INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_undo_room ON undo_log(room_id);
+CREATE INDEX IF NOT EXISTS ix_undo_undone ON undo_log(undone, id);
 """
 
 
@@ -603,6 +618,63 @@ class Database:
     def vacuum(self) -> None:
         with self._lock:
             self._conn.execute("VACUUM")
+
+    # ------------------------------------------------------------------ undo log
+    def add_undo_log(self, room_id: str, old_values: Dict[str, Any],
+                     action: str = "update", actor: str = "",
+                     note: str = "") -> int:
+        """Ghi 1 bản ghi có thể hoàn tác (Ctrl+Z). Trả về id của dòng undo."""
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO undo_log(room_id, old_values, action, actor, note, "
+                "undone, created_at) VALUES(?,?,?,?,?,0,?)",
+                (room_id, json.dumps(old_values, ensure_ascii=False),
+                 action, actor or self.settings.get("user_name") or "",
+                 note, now_iso()),
+            )
+            return int(cur.lastrowid)
+
+    def list_undo(self, room_id: Optional[str] = None, undone: int = 0,
+                  limit: int = 50) -> List[Dict[str, Any]]:
+        """Lấy danh sách câu lệnh chưa hoàn tác, mới nhất trước."""
+        with self._lock:
+            if room_id:
+                rows = self._conn.execute(
+                    "SELECT * FROM undo_log WHERE room_id=? AND undone=? "
+                    "ORDER BY id DESC LIMIT ?",
+                    (room_id, undone, limit))
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM undo_log WHERE undone=? ORDER BY id DESC LIMIT ?",
+                    (undone, limit))
+            return [row_to_dict(r) for r in rows.fetchall()]
+
+    def mark_undone(self, qid: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE undo_log SET undone=1 WHERE id=?", (qid,))
+
+    # ------------------------------------------------------------------ backup
+    def backup_database(self, label: str = "") -> str:
+        """Sao chép file DB hiện tại vào data/<env>/backup/ kèm tên file có timestamp.
+
+        Dùng trước khi import lớn / thay đổi hàng loạt để có điểm khôi phục.
+        """
+        src = Path(self.path)
+        parent = src.parent
+        backup_dir = parent / "backup"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        tag = f"_{label}" if label else ""
+        dst = backup_dir / f"{src.stem}{tag}_{stamp}{src.suffix}"
+        # SQLite có thể đang mở kết nối -> dùng backup API an toàn hơn copy thô
+        dst_conn = sqlite3.connect(str(dst))
+        try:
+            with self._lock:
+                self._conn.backup(dst_conn)
+        finally:
+            dst_conn.close()
+        return str(dst)
 
 
 _ROOM_SELECT = (

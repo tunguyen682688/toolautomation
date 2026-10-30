@@ -82,7 +82,7 @@ echo  + Moi truong (moi cai database + cau hinh RIENG, khong anh huong nhau):
 echo      ChayUngDung.bat  -> PROD   (du lieu that, mac dinh khi bam .exe)
 echo      ChayStaging.bat  -> STAGING (kiem truoc khi dua vao su dung)
 echo      ChayDev.bat      -> DEV     (phat trien)
-echo    hoac tuong ung:  KhoPhongCanHo.exe --env prod|staging|dev
+echo    hoac tuong ung:  KhoPhongCanHo.exe --env prod - staging - dev
 echo  + Copy thu muc dist\KhoPhongCanHo\ sang may khac la dung duoc
 echo    (may do khong can cai Python)
 echo ==========================================================

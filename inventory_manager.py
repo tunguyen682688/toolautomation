@@ -11,6 +11,7 @@ Giao diện KHÔNG được ghi DB trực tiếp - chỉ gọi manager.
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -403,6 +404,8 @@ class InventoryManager:
         room = self.db.get_room(rid)
         self.index.update_room(room)
         self._enqueue_room(room, building)
+        self.db.add_undo_log(rid, {}, action="add", actor=actor,
+                             note=f"Thêm phòng {record.get('room_code','')}")
         self.emit("rooms_changed", ids=[rid], action="add")
         return room
 
@@ -448,6 +451,11 @@ class InventoryManager:
 
                     old_status = current["status"]
                     new_status = rec["status"]
+                    # --- GHI UNDO LOG TRƯỚC KHI GHI DB (để Ctrl+Z hoàn tác) ---
+                    self.db.add_undo_log(
+                        rid, current,
+                        action="status" if old_status != new_status else "update",
+                        actor=actor, note=note or "")
                     self.db.update_room_tx(conn, rid, update_fields)
                     if old_status != new_status:
                         # lưu LỊCH SỬ thay đổi (trạng thái cũ -> mới, thời gian, người thực hiện, ghi chú)
@@ -493,6 +501,9 @@ class InventoryManager:
             current = self.db.get_room(rid)
             if not current:
                 return
+            # --- UNDO LOG trước khi xóa mềm (để khôi phục được) ---
+            self.db.add_undo_log(rid, current, action="delete",
+                                 actor=actor, note=f"Xóa phòng {current.get('room_code','')}")
             self.db.soft_delete_room(rid, actor)
         self.index.remove_room(rid)
         self._enqueue_room({**current, "deleted": 1, "version": current["version"] + 1},
@@ -505,6 +516,9 @@ class InventoryManager:
             current = self.db.get_room(rid)
             if not current:
                 return
+            # --- UNDO LOG trước khi khôi phục ---
+            self.db.add_undo_log(rid, current, action="restore",
+                                 actor=actor, note=f"Khôi phục phòng {current.get('room_code','')}")
             # khôi phục phải không vi phạm unique -> nếu trùng thì báo
             exist = self.db.find_room_identity(current["building_id"], current["unit_key"])
             if exist and exist["id"] != rid:
@@ -528,6 +542,64 @@ class InventoryManager:
         payload["excel_row"] = None
         return self.add_room(payload, actor=actor, force=False)
 
+    # ------------------------------------------------------------------ hoàn tác (Ctrl+Z)
+    def undo_last(self, actor: str = "", room_id: Optional[str] = None
+                  ) -> Dict[str, Any]:
+        """Hoàn tác 1 thao tác gần nhất (Ctrl+Z): xóa/restore/sửa/thêm.
+
+        Trả về dict {ok, message, room_id, action} để UI hiển thị toast.
+        """
+        actor = actor or self.settings.get("user_name") or "Admin"
+        entries = self.db.list_undo(room_id=room_id, undone=0, limit=1)
+        if not entries:
+            return {"ok": False, "message": "Không có thao tác nào để hoàn tác."}
+        entry = entries[0]
+        qid = entry["id"]
+        rid = entry["room_id"]
+        action = entry["action"]
+        old_values = json.loads(entry["old_values"] or "{}")
+        try:
+            if action == "delete":
+                self.restore_room(rid, actor=actor)
+                msg = f"Đã khôi phục phòng {rid}"
+            elif action == "restore":
+                self.delete_room(rid, actor=actor)
+                msg = f"Đã xóa mềm lại phòng {rid}"
+            elif action == "add":
+                self.delete_room(rid, actor=actor)
+                msg = f"Đã hủy thao tác thêm phòng {rid}"
+            elif action in ("update", "status"):
+                if old_values:
+                    # loại bỏ các trường không nên hoàn tác ngược
+                    safe = {k: v for k, v in old_values.items()
+                            if k not in ("id", "created_at", "search_norm", "sync_state")}
+                    self.update_room(rid, safe, actor=actor, note="Hoàn tác (Ctrl+Z)")
+                msg = f"Đã hoàn tác thay đổi phòng {rid}"
+            else:
+                msg = f"Bỏ qua thao tác '{action}' (không hỗ trợ hoàn tác)"
+            self.db.mark_undone(qid)
+            self.emit("rooms_changed", ids=[rid], action="undo")
+            self.emit("stats_changed")
+            return {"ok": True, "message": msg, "room_id": rid, "action": action}
+        except Exception as e:  # noqa: BLE001
+            log.exception("undo thất bại qid=%s", qid)
+            return {"ok": False, "message": f"Không hoàn tác được: {e}"}
+
+    def backup_database(self, label: str = "") -> str:
+        """Proxy sang Database.backup_database."""
+        return self.db.backup_database(label)
+        """Nhân bản phòng: tạo bản ghi MỚI (id mới) với mã phòng mới - đánh dấu cần xác minh."""
+        src = self.db.get_room(rid)
+        if not src:
+            raise KeyError(f"Không tìm thấy phòng {rid}")
+        building = self.db.get_building(src["building_id"]) or {}
+        payload = {k: src.get(k) for k in ROOM_INSERT_FIELDS}
+        payload["room_code"] = (f"{src['room_code']}-COPY" if src.get("room_code") else "")
+        payload["unit_code"] = ""      # không được đoán số căn -> người dùng phải nhập
+        payload["status"] = "new"
+        payload["excel_row"] = None
+        return self.add_room(payload, actor=actor, force=False)
+
     # ---------------------------------------------------------------- xóa / import
     def import_apply(self, plan, include_kinds: Sequence[str], actor: str = "") -> Dict[str, int]:
         """Áp dụng kế hoạch import theo các loại người dùng chọn. Không bao giờ ghi đè khi chưa xác nhận."""
@@ -535,6 +607,13 @@ class InventoryManager:
         counts = {"total": len(plan.items), "new": 0, "duplicate": 0, "changed": 0,
                   "suspect": 0, "error": 0, "failed": 0, "skipped": 0}
         changed_rooms: List[str] = []
+        # --- Tự backup trước khi import lớn để có điểm khôi phục ---
+        if len(plan.items) >= 10:
+            try:
+                self.db.backup_database(label="import")
+                log.info("Đã tự backup DB trước import %d dòng", len(plan.items))
+            except Exception:  # noqa: BLE001
+                log.exception("Không backup được DB trước import")
         for item in plan.items:
             kind = item.kind
             if kind not in include_kinds:

@@ -220,6 +220,8 @@ class MainWindow(QMainWindow):
         self.page_dashboard.open_rooms.connect(self._open_rooms_from_dashboard)
         self.page_dashboard.open_buildings.connect(lambda: self.navigate("buildings"))
         self.page_buildings.open_rooms.connect(self._open_rooms_from_building)
+        self.page_buildings.building_selected.connect(lambda d: None)  # panel tự cập nhật bên trong BuildingPage
+        self.page_buildings.open_detail.connect(self._focus_room)
         self.page_rooms.duplicate_open.connect(self._focus_room)
 
         self.stack.addWidget(self.page_dashboard)     # 0
@@ -274,6 +276,7 @@ class MainWindow(QMainWindow):
             ("Ctrl+1", lambda: self.navigate("dashboard")),
             ("Ctrl+2", lambda: self.navigate("buildings")),
             ("Ctrl+3", lambda: self.navigate("rooms")),
+            ("Ctrl+Z", self.page_rooms._undo),
             ("Esc", self._hide_popup),
         ]
         for seq, slot in pairs:

@@ -29,8 +29,9 @@ if not exist ".venv\Scripts\python.exe" (
     )
 )
 
-echo Dang khoi dong ung dung...
-".venv\Scripts\python.exe" main.py
+echo Dang khoi dong ung dung (mac dinh: moi truong DEV)...
+rem Them moi truong neu muon, vi du: start.bat --env staging
+".venv\Scripts\python.exe" main.py %*
 if errorlevel 1 (
     echo.
     echo [LOI] Ung dung dung loi. Xem log: data\logs\app.log

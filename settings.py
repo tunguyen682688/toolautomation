@@ -74,6 +74,14 @@ class SettingsDialog(QDialog):
         db_path.setReadOnly(True)
         db_path.setToolTip("File dữ liệu cục bộ (SQLite) - không chỉnh tay.")
         form.addRow("File dữ liệu:", db_path)
+
+        from config import APP_ENV, env_badge, DATA_DIR, SETTINGS_FILE
+        env_row = QLineEdit(f"{env_badge()}  ·  data: {DATA_DIR}  ·  config: {SETTINGS_FILE}")
+        env_row.setReadOnly(True)
+        env_row.setToolTip(
+            "Môi trường đang chạy. Đổi bằng cờ --env dev|staging|prod.\n"
+            "Mỗi môi trường có data/ và settings RIÊNG - không ảnh hưởng lẫn nhau.")
+        form.addRow("Môi trường:", env_row)
         lay.addLayout(form)
 
         note = QLabel(

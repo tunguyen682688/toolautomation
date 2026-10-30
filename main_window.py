@@ -21,6 +21,11 @@ import text_utils as tu
 from models import RoomFilter, RoomStatus
 from theme import APP_QSS, status_bg, status_color, status_label
 
+from config import APP_ENV, env_badge, DATA_DIR
+
+# màu nhận diện môi trường (nhắc người dùng đang thao tác ở đâu)
+ENV_COLORS = {"prod": "#16A34A", "staging": "#D97706", "dev": "#6B7280"}
+
 NAV_ITEMS = [
     ("dashboard", "🏠", "Tổng quan"),
     ("buildings", "🏢", "Tòa nhà"),
@@ -78,7 +83,8 @@ class MainWindow(QMainWindow):
         self.event_queue: "queue.Queue[Dict]" = queue.Queue()
         self._nav = "dashboard"
 
-        self.setWindowTitle("Kho Phòng Căn Hộ - Quản lý kho căn hộ cho thuê")
+        self.setWindowTitle(
+            f"Kho Phòng Căn Hộ - Quản lý kho căn hộ cho thuê  [{env_badge()}]")
         self.resize(1440, 900)
         self.setStyleSheet(APP_QSS)
 
@@ -237,6 +243,20 @@ class MainWindow(QMainWindow):
         # status bar
         sb = QStatusBar()
         sb.setFixedHeight(26)
+
+        # huy hiệu môi trường - luôn hiện để không ai gõ nhầm dữ liệu prod khi đang test
+        self.lbl_env = QLabel(f" {env_badge()} ")
+        self.lbl_env.setFixedHeight(20)
+        self.lbl_env.setAlignment(Qt.AlignCenter)
+        self.lbl_env.setStyleSheet(
+            f"background: {ENV_COLORS.get(APP_ENV, '#6B7280')}; color: white;"
+            "font-weight: 700; font-size: 11px; border-radius: 4px; padding: 0 8px;")
+        self.lbl_env.setToolTip(
+            f"Môi trường hiện tại: {APP_ENV}\n"
+            f"Dữ liệu: {DATA_DIR}\n\n"
+            "Đổi môi trường bằng cờ --env dev|staging|prod khi khởi động.")
+        sb.addPermanentWidget(self.lbl_env, 0)
+
         self.lbl_status = QLabel("Sẵn sàng")
         sb.addWidget(self.lbl_status, 1)
         self.lbl_counts = QLabel("")

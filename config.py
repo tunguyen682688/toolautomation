@@ -21,16 +21,80 @@ else:
     BASE_DIR = Path(__file__).resolve().parent
     BUNDLE_DIR = BASE_DIR
 
-DATA_DIR = BASE_DIR / "data"
+# ------------------------------------------------------------------ MÔI TRƯỜNG
+# 3 môi trường riêng biệt, mỗi env có data/ và settings riêng:
+#   dev     - phát triển (mặc định khi chạy từ nguồn: python main.py)
+#   staging - kiểm thử trước khi đưa vào sử dụng thật
+#   prod    - sản xuất (mặc định khi chạy bản build .exe)
+# Chọn:  python main.py --env staging   hoặc   KhoPhongCanHo.exe --env staging
+#        (hoặc biến môi trường KHO_APP_ENV=staging)
+VALID_ENVS = ("dev", "staging", "prod")
+DEFAULT_ENV = "prod" if getattr(sys, "frozen", False) else "dev"
+
+
+def _resolve_env() -> str:
+    """Đọc môi trường: --env <ten> > biến KHO_APP_ENV > mặc định theo chế độ chạy."""
+    argv = sys.argv[1:]
+    for i, a in enumerate(argv):
+        if a == "--env" and i + 1 < len(argv):
+            v = argv[i + 1].strip().lower()
+            return v if v in VALID_ENVS else DEFAULT_ENV
+        if a.startswith("--env="):
+            v = a.split("=", 1)[1].strip().lower()
+            return v if v in VALID_ENVS else DEFAULT_ENV
+    v = (os.environ.get("KHO_APP_ENV") or "").strip().lower()
+    return v if v in VALID_ENVS else DEFAULT_ENV
+
+
+APP_ENV = _resolve_env()
+
+# ------------------------------------------------------------------ ĐƯỜNG DẪN (theo env)
+DATA_DIR = BASE_DIR / "data" / APP_ENV          # data/dev, data/staging, data/prod
 CONFIG_DIR = BASE_DIR / "config"
 LOG_DIR = DATA_DIR / "logs"
 CACHE_DIR = DATA_DIR / "cache"
 SAMPLES_DIR = BUNDLE_DIR / "samples"
-SETTINGS_FILE = CONFIG_DIR / "settings.json"
+SETTINGS_FILE = CONFIG_DIR / f"settings_{APP_ENV}.json"
 DB_FILE = DATA_DIR / "kho_phong.db"
+
+# đường dẫn của phiên bản CŨ (trước khi tách môi trường) -> dùng để migrate 1 lần
+LEGACY_DB_FILE = BASE_DIR / "data" / "kho_phong.db"
+LEGACY_SETTINGS_FILE = CONFIG_DIR / "settings.json"
+
+
+def _migrate_legacy() -> None:
+    """Di chuyển dữ liệu phiên bản cũ (data/kho_phong.db, config/settings.json)
+    vào môi trường mặc định — chỉ khi đang ở env mặc định và env đích chưa có dữ liệu."""
+    if APP_ENV != DEFAULT_ENV:
+        return                                   # env do người dùng chọn -> không tự chuyển
+    try:
+        if LEGACY_DB_FILE.exists() and not DB_FILE.exists():
+            import shutil
+            DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+            for suffix in ("", "-wal", "-shm"):  # kèm file phụ của SQLite
+                src = Path(str(LEGACY_DB_FILE) + suffix)
+                if src.exists():
+                    shutil.move(str(src), str(DB_FILE) + suffix)
+        if LEGACY_SETTINGS_FILE.exists() and not SETTINGS_FILE.exists():
+            import shutil
+            shutil.move(str(LEGACY_SETTINGS_FILE), str(SETTINGS_FILE))
+    except OSError:
+        pass                                     # migrate thất bại -> dữ liệu cũ vẫn nguyên vẹn
+
 
 for _d in (DATA_DIR, CONFIG_DIR, LOG_DIR, CACHE_DIR, SAMPLES_DIR):
     _d.mkdir(parents=True, exist_ok=True)
+
+_migrate_legacy()
+
+
+def env_badge() -> str:
+    """Nhãn môi trường hiển thị trên UI: DEV / STAGING / PROD."""
+    return APP_ENV.upper()
+
+
+def is_prod() -> bool:
+    return APP_ENV == "prod"
 
 DEFAULTS: Dict[str, Any] = {
     # --- người dùng / hiển thị ---

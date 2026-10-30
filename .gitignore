@@ -14,6 +14,7 @@ data/
 # --- Bí mật Google + cấu hình cục bộ của máy (KHÔNG commit) ---
 config/service_account*.json
 config/settings.json
+config/settings_*.json
 *.pem
 *.p12
 

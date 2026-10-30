@@ -41,21 +41,32 @@ copy /Y "samples\*.xlsx" "dist\KhoPhongCanHo\du_lieu_mau\" >nul
 copy /Y "README.md" "dist\KhoPhongCanHo\Huong_Dan.md" >nul
 copy /Y "requirements.txt" "dist\KhoPhongCanHo\" >nul
 
+rem cac file khoi dong theo moi truong (moi truong -> data + settings rieng biet)
 (
 echo @echo off
 echo cd /d "%%~dp0"
-echo start "" "KhoPhongCanHo.exe"
+echo start "" "KhoPhongCanHo.exe" --env prod
 ) > "dist\KhoPhongCanHo\ChayUngDung.bat"
+(
+echo @echo off
+echo cd /d "%%~dp0"
+echo start "" "KhoPhongCanHo.exe" --env staging
+) > "dist\KhoPhongCanHo\ChayStaging.bat"
+(
+echo @echo off
+echo cd /d "%%~dp0"
+echo start "" "KhoPhongCanHo.exe" --env dev
+) > "dist\KhoPhongCanHo\ChayDev.bat"
 
 echo.
 echo [4/4] Kiem tra ban build (selftest)...
 set QT_QPA_PLATFORM=offscreen
-"dist\KhoPhongCanHo\KhoPhongCanHo.exe" --selftest
+"dist\KhoPhongCanHo\KhoPhongCanHo.exe" --selftest --env staging
 set XT=%ERRORLEVEL%
 set QT_QPA_PLATFORM=
-if exist "dist\KhoPhongCanHo\data\selftest_result.txt" (
+if exist "dist\KhoPhongCanHo\data\staging\selftest_result.txt" (
     echo.
-    type "dist\KhoPhongCanHo\data\selftest_result.txt"
+    type "dist\KhoPhongCanHo\data\staging\selftest_result.txt"
 )
 if not "%XT%"=="0" (
     echo [LOI] Selftest that bai - dung ban build nay!
@@ -66,8 +77,12 @@ if not "%XT%"=="0" (
 echo.
 echo ==========================================================
 echo  BUILD THANH CONG
-echo  + Chay thu:     dist\KhoPhongCanHo\ChayUngDung.bat
-echo  + Hoac bam truc tiep: dist\KhoPhongCanHo\KhoPhongCanHo.exe
+echo  + San pham:     dist\KhoPhongCanHo\
+echo  + Moi truong (moi cai database + cau hinh RIENG, khong anh huong nhau):
+echo      ChayUngDung.bat  -> PROD   (du lieu that, mac dinh khi bam .exe)
+echo      ChayStaging.bat  -> STAGING (kiem truoc khi dua vao su dung)
+echo      ChayDev.bat      -> DEV     (phat trien)
+echo    hoac tuong ung:  KhoPhongCanHo.exe --env prod|staging|dev
 echo  + Copy thu muc dist\KhoPhongCanHo\ sang may khac la dung duoc
 echo    (may do khong can cai Python)
 echo ==========================================================

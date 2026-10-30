@@ -91,9 +91,16 @@ def _finish_selftest(app, win, mgr, db, log) -> None:
               f"{out.stat().st_size if out.exists() else 0} bytes")
 
         # 6) tìm được file cấu hình / ghi log
-        from config import DATA_DIR, CONFIG_DIR
+        from config import DATA_DIR, CONFIG_DIR, APP_ENV, SETTINGS_FILE, DB_FILE
         check("Ghi được dữ liệu cạnh file exe",
               DATA_DIR.exists() and CONFIG_DIR.exists(), str(DATA_DIR))
+        # 7) môi trường được tách riêng
+        check(f"Data nằm trong thư mục env '{APP_ENV}'",
+              DATA_DIR.name == APP_ENV and str(DB_FILE).startswith(str(DATA_DIR)),
+              str(DATA_DIR))
+        check("Settings riêng theo env",
+              SETTINGS_FILE.name == f"settings_{APP_ENV}.json"
+              and SETTINGS_FILE.parent.exists(), str(SETTINGS_FILE))
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
         errs.append(f"EXCEPTION: {e}")
@@ -143,6 +150,9 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Kho Phòng Căn Hộ")
     app.setOrganizationName("Tú Nguyễn Land")
+
+    from config import APP_ENV, env_badge, DATA_DIR
+    log.info("Môi trường: %s (data: %s)", APP_ENV, DATA_DIR)
 
     # splash nhanh (ứng dụng lớn -> có cảm giác mở tức thì)
     pix = QPixmap(QSize(560, 300))

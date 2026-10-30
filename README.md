@@ -27,12 +27,48 @@ python -m venv .venv
 # 3) cài thư viện
 pip install -r requirements.txt
 
-# 4) chạy chương trình
+# 4) chạy chương trình (mặc định: môi trường DEV)
 python main.py
+
+# hoặc chọn môi trường:  dev | staging | prod
+python main.py --env staging
 ```
 
 > **Lưu ý quan trọng:** Dự án **không dùng pandas/numpy** vì môi trường Windows có chính sách
 > AppControl chặn DLL của numpy. Excel được đọc/ghi trực tiếp bằng `openpyxl` → nhẹ và nhanh hơn.
+
+### Môi trường DEV / STAGING / PROD
+
+Phần mềm tách **3 môi trường hoàn toàn độc lập** — mỗi môi trường có database,
+log và file cấu hình **riêng**, không ảnh hưởng lẫn nhau:
+
+| Môi trường | Dữ liệu | Cấu hình | Dùng để |
+|---|---|---|---|
+| `dev` | `data/dev/kho_phong.db` | `config/settings_dev.json` | Phát triển, thử code (**mặc định khi chạy `python main.py`**) |
+| `staging` | `data/staging/kho_phong.db` | `config/settings_staging.json` | Kiểm thử trước khi đưa vào dùng thật |
+| `prod` | `data/prod/kho_phong.db` | `config/settings_prod.json` | Sản xuất — dữ liệu thật (**mặc định khi chạy `.exe`**) |
+
+**Cách chọn môi trường** (ưu tiên từ trên xuống):
+
+1. Cờ `--env` trên dòng lệnh: `python main.py --env staging`
+2. Biến môi trường Windows: `set KHO_APP_ENV=staging` rồi chạy `python main.py`
+3. Mặc định: `dev` khi chạy từ nguồn, `prod` khi chạy bản build `.exe`
+
+**Nhận biết đang ở môi trường nào:** huy hiệu **`[DEV]` / `[STAGING]` / `[PROD]`** hiện ở
+góc trái thanh trạng thái và ở tiêu đề cửa sổ (DEV xám, STAGING cam, PROD xanh lá).
+
+Ví dụ thực tế — **dùng staging để thử đồng bộ Google Sheets với bảng nháp, không đụng bảng thật:**
+
+```powershell
+# env prod đang trỏ spreadsheet_id = BẢNG THẬT
+# env staging trỏ spreadsheet_id = BẢNG NHÁP (copy để test)  -> tha hồ thử mà không lo mất dữ liệu
+python main.py --env staging
+```
+
+> **Chuyển dữ liệu cũ:** nếu bạn từng chạy bản trước khi tách môi trường
+> (có `data/kho_phong.db` và `config/settings.json` ở thư mục gốc), phần mềm **tự động
+> chuyển chúng vào env mặc định** ở lần chạy đầu tiên (kèm file `-wal` của SQLite).
+> Muốn env khác dùng dữ liệu đó thì tự copy `data/<env>/kho_phong.db`.
 
 ### File cấu trúc
 
@@ -50,7 +86,7 @@ toolautomation/
 ├── google_drive.py       ← mở link Drive/Zalo/tel & upload media
 ├── sync_queue.py         ← hàng đợi đồng bộ + worker thread nền + NetworkMonitor
 ├── models.py             ← trạng thái phòng, cột dữ liệu, filter, dataclass
-├── config.py             ← SettingsStore (config/settings.json) + đường dẫn
+├── config.py             ← SettingsStore + đường dẫn + XÁC ĐỊNH MÔI TRƯỜNG (--env)
 ├── text_utils.py         ← chuẩn hoá tiếng Việt (bỏ dấu, khoá nhận diện, giá tiền...)
 ├── logger.py / theme.py  ← nhật ký & chủ đề giao diện (QSS)
 ├── dashboard.py          ← Dashboard 9 chỉ số, biểu đồ, lịch sử thay đổi
@@ -60,9 +96,14 @@ toolautomation/
 ├── import_dialog.py      ← nhập Excel: ánh xạ cột, xem trước 5 loại, không tự ghi đè
 ├── export_dialog.py      ← xuất Excel (giữ công thức) + file mẫu trống
 ├── settings.py           ← hộp thoại Cài đặt (Chung / Google / Đồng bộ / Hướng dẫn Google API)
-├── data/                 ← dữ liệu (kho_phong.db), cache, logs  (tự tạo)
-├── config/               ← settings.json + service_account.json (bạn tự đặt, KHÔNG commit)
+├── data/                 ← MỖI MÔI TRƯỜNG MỘT THƯ MỤC (tự tạo):
+│   ├── dev/    kho_phong.db · logs/ · cache/
+│   ├── staging/kho_phong.db · logs/ · cache/
+│   └── prod/   kho_phong.db · logs/ · cache/
+├── config/               ← settings_<env>.json + service_account.json (KHÔNG commit)
 ├── samples/              ← dữ liệu mẫu kiểm thử
+├── build.bat             ← build bản Windows (.exe) + selftest
+├── KhoPhongCanHo.spec    ← cấu hình PyInstaller
 └── tests/                ← bộ kiểm thử (18 + 8 tình huống giao diện)
 ```
 
@@ -236,15 +277,23 @@ Kết quả: `dist\KhoPhongCanHo\` (~235 MB), cấu trúc:
 
 ```
 dist\KhoPhongCanHo\
-├── KhoPhongCanHo.exe      ← file chạy chính (double-click)
-├── ChayUngDung.bat        ← bấm đúp để mở app
+├── KhoPhongCanHo.exe      ← file chạy chính (double-click = môi trường PROD)
+├── ChayUngDung.bat        ← chạy môi trường PROD (dữ liệu thật)
+├── ChayStaging.bat        ← chạy môi trường STAGING (thử nghiệm)
+├── ChayDev.bat            ← chạy môi trường DEV (phát triển)
 ├── Huong_Dan.md           ← tài liệu (README)
 ├── requirements.txt
 ├── du_lieu_mau\           ← 2 file Excel mẫu để kiểm thử import
 ├── _internal\             ← thư viện (KHÔNG xóa, KHÔNG sửa)
-├── config\                ← TẠO TỰ ĐỘNG khi chạy: settings.json, Google API
-└── data\                  ← TẠO TỰ ĐỘNG: kho_phong.db, logs, selftest_result.txt
+├── config\                ← TẠO TỰ ĐỘNG: settings_dev/staging/prod.json, Google API
+└── data\                  ← TẠO TỰ ĐỘNG, MỖI MÔI TRƯỜNG MỘT THƯ MỤC:
+    ├── dev\     kho_phong.db · logs\ · selftest_result.txt
+    ├── staging\ kho_phong.db · logs\ · selftest_result.txt
+    └── prod\    kho_phong.db · logs\
 ```
+
+Mỗi môi trường có database và cấu hình **riêng hoàn toàn** — thử trên staging
+không ảnh hưởng dữ liệu prod. Xem mục **1. Môi trường DEV / STAGING / PROD**.
 
 ### 8.2. Chạy trên máy khác
 
@@ -261,8 +310,9 @@ Muốn giữ dữ liệu thì backup thư mục `data\` trước khi xóa.
 ### 8.4. Chế độ --selftest
 
 ```
-dist\KhoPhongCanHo\KhoPhongCanHo.exe --selftest
+dist\KhoPhongCanHo\KhoPhongCanHo.exe --selftest --env staging
 ```
 
 Chạy nền (không hiện cửa sổ), tự nhập dữ liệu mẫu → mở 3 trang → tìm kiếm → xuất Excel.
-Exit code `0` = tốt, `1` = lỗi; chi tiết ghi vào `data\selftest_result.txt`.
+Exit code `0` = tốt, `1` = lỗi; chi tiết ghi vào `data\<env>\selftest_result.txt`.
+`build.bat` tự chạy selftest ở env **staging** và hủy build nếu fail.

@@ -7,17 +7,25 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict
 
-BASE_DIR = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    # bản build (.exe) -> dữ liệu / cấu hình nằm CẠNH file exe (ghi được, không bị xóa khi đóng app)
+    BASE_DIR = Path(sys.executable).resolve().parent
+    BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))   # file đọc-đi-kèm (samples)
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+    BUNDLE_DIR = BASE_DIR
+
 DATA_DIR = BASE_DIR / "data"
 CONFIG_DIR = BASE_DIR / "config"
 LOG_DIR = DATA_DIR / "logs"
 CACHE_DIR = DATA_DIR / "cache"
-SAMPLES_DIR = BASE_DIR / "samples"
+SAMPLES_DIR = BUNDLE_DIR / "samples"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 DB_FILE = DATA_DIR / "kho_phong.db"
 

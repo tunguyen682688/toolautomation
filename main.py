@@ -18,7 +18,118 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+def resource_path(rel: str) -> Path:
+    """Đường dẫn file dữ liệu đi kèm (hoạt động cả khi đã đóng gói bằng PyInstaller)."""
+    base = getattr(sys, "_MEIPASS", None)          # bản build (onefile/onedir)
+    if base:
+        return Path(base) / rel
+    return Path(__file__).resolve().parent / rel
+
+
+def app_dir() -> Path:
+    """Thư mục chứa file thực thi (bản build) hoặc thư mục nguồn (chạy `python main.py`)."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def _finish_selftest(app, win, mgr, db, log) -> None:
+    """Tự kiểm tra bản build (chạy với `--selftest`): nhập mẫu -> mở trang -> tìm -> xuất Excel."""
+    errs: list = []
+    lines: list = []
+
+    def check(name: str, ok: bool, extra: str = ""):
+        tag = "PASS" if ok else "FAIL"
+        lines.append(f"  [{tag}] {name} {'' if ok else extra}")
+        print(lines[-1])
+        if not ok:
+            errs.append(f"{name} {extra}")
+
+    print("=== SELFTEST BAN BUILD ===")
+    try:
+        app.processEvents()
+
+        # 1) nhập file Excel mẫu (đi kèm bản build)
+        sample = resource_path("samples") / "Kho_Hang_Phong_Trong_Co_Phuong.xlsx"
+        check("Tìm thấy file dữ liệu mẫu đi kèm", sample.exists(), str(sample))
+        if sample.exists():
+            from excel_import import build_plan, read_workbook
+            parsed = read_workbook(str(sample))
+            plan = build_plan(parsed, mgr.checker, db)
+            res = mgr.import_apply(plan, ["new", "duplicate", "changed", "suspect"], actor="selftest")
+            check("Nhập Excel thành công", res.get("new", 0) > 0, str(res))
+            check("Số phòng sau import đúng",
+                  mgr.stats()["total"] == res.get("new"), str(mgr.stats()["total"]))
+
+        # 2) Dashboard 9 thẻ
+        win.navigate("dashboard")
+        app.processEvents()
+        check("Dashboard có 9 thẻ KPI", len(win.page_dashboard._cards) == 9)
+
+        # 3) trang tòa nhà
+        win.navigate("buildings")
+        app.processEvents()
+        check("Trang tòa nhà hiển thị thẻ",
+              len(win.page_buildings._cards) >= 10, str(len(win.page_buildings._cards)))
+
+        # 4) bảng phòng + tìm kiếm không dấu
+        win.navigate("rooms")
+        app.processEvents()
+        rows = win.page_rooms.model.rowCount()
+        check("Bảng phòng có dữ liệu", rows > 0, str(rows))
+        n = len(mgr.rooms("nguyen thuong hien"))
+        check("Tìm kiếm không dấu trả kết quả", n > 0, str(n))
+        n2 = len(mgr.rooms("P-86"))
+        check("Tìm theo mã phòng", n2 >= 1, str(n2))
+
+        # 5) xuất Excel
+        import tempfile
+        out = Path(tempfile.mkdtemp(prefix="kho_xuat_")) / "selftest.xlsx"
+        from excel_export import export_workbook
+        export_workbook(str(out), mgr.rooms(""), mgr.buildings(), mgr.stats())
+        check("Xuất Excel thành công", out.exists() and out.stat().st_size > 5000,
+              f"{out.stat().st_size if out.exists() else 0} bytes")
+
+        # 6) tìm được file cấu hình / ghi log
+        from config import DATA_DIR, CONFIG_DIR
+        check("Ghi được dữ liệu cạnh file exe",
+              DATA_DIR.exists() and CONFIG_DIR.exists(), str(DATA_DIR))
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        errs.append(f"EXCEPTION: {e}")
+
+    print(f"========== SELFTEST: {'OK' if not errs else str(len(errs)) + ' LOI'} ==========")
+    for e in errs:
+        print("  LOI:", e)
+        lines.append(f"  LOI: {e}")
+    lines.insert(0, f"========== SELFTEST: {'OK' if not errs else str(len(errs)) + ' LOI'} ==========")
+
+    # bản build là GUI (không có console) -> ghi kết quả ra file để đọc được
+    try:
+        from config import DATA_DIR
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        (DATA_DIR / "selftest_result.txt").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+    log.info("SELFTEST kết thúc: %s", "OK" if not errs else errs)
+    app.exit(0 if not errs else 1)
+
+
 def main() -> int:
+    import os
+
+    SELFTEST = "--selftest" in sys.argv
+    if SELFTEST:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")   # chạy nền, không cần màn hình
+        # console Windows hay là cp1252 -> bắt buộc UTF-8 để in được tiếng Việt (không crash)
+        for _s in (sys.stdout, sys.stderr):
+            try:
+                _s.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                pass
+
     from config import get_settings
     from logger import setup_logging, get_logger
 
@@ -58,6 +169,14 @@ def main() -> int:
         return 1
 
     settings = get_settings()
+    if SELFTEST:
+        # dùng DB tạm -> không đụng dữ liệu thật của người dùng
+        import tempfile
+        _tmp = Path(tempfile.mkdtemp(prefix="kho_selftest_"))
+        settings.set("db_path", str(_tmp / "selftest.db"), save=False)
+        settings.set("google_enabled", False, save=False)
+        log.info("SELFTEST: dùng DB tạm %s", _tmp)
+
     try:
         db = Database.instance()
         mgr = InventoryManager(db)
@@ -85,8 +204,8 @@ def main() -> int:
         f"nhấn Ctrl+F để tìm nhanh")
 
     # lần chạy đầu (DB trống) -> đề nghị nhập luôn file Excel dữ liệu mẫu/thật
-    if not stats.get("total"):
-        sample = Path(__file__).resolve().parent / "samples" / "Kho_Hang_Phong_Trong_Co_Phuong.xlsx"
+    if not stats.get("total") and not SELFTEST:
+        sample = resource_path("samples") / "Kho_Hang_Phong_Trong_Co_Phuong.xlsx"
         if sample.exists():
             ans = QMessageBox.question(
                 win, "Chưa có dữ liệu",
@@ -108,6 +227,11 @@ def main() -> int:
                 except Exception as e:  # noqa: BLE001
                     log.exception("Nhập file mẫu lỗi")
                     QMessageBox.warning(win, "Không nhập được file mẫu", str(e))
+
+    if SELFTEST:
+        # ---- tự kiểm tra bản build: nhập dữ liệu mẫu, mở các trang, tìm kiếm ----
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(600, lambda: _finish_selftest(app, win, mgr, db, log))
 
     code = app.exec()
     # dọn dẹp

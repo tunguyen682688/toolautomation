@@ -215,3 +215,54 @@ nhân bản phòng, panel chi tiết + lịch sử, popup tìm kiếm toàn cụ
 | Lỗi `429 Quota exceeded` | Giảm `sync_interval_sec`, tăng `batch_size` — phần mềm đã tự retry |
 | Muốn reset dữ liệu | Đóng chương trình, đổi tên `data\kho_phong.db` (hoặc xóa), chạy lại và nhập Excel |
 | Xem log | `data\logs\app.log`, `data\logs\sync.log` |
+
+---
+
+## 8. BUILD BẢN WINDOWS (.EXE) CHO NGƯỜI DÙNG CUỐI
+
+Máy người dùng cuối **không cần cài Python** — chỉ cần copy thư mục build.
+
+### 8.1. Tạo bản build (trên máy có Python)
+
+```
+build.bat
+```
+
+Script tự làm đủ 4 bước: cài PyInstaller → đóng gói (`KhoPhongCanHo.spec`) →
+chép tài liệu + dữ liệu mẫu vào bản build → chạy `--selftest` tự kiểm tra
+(10 kiểm thử: nhập Excel, mở các trang, tìm kiếm, xuất Excel). Selftest fail ⇒ hủy build.
+
+Kết quả: `dist\KhoPhongCanHo\` (~235 MB), cấu trúc:
+
+```
+dist\KhoPhongCanHo\
+├── KhoPhongCanHo.exe      ← file chạy chính (double-click)
+├── ChayUngDung.bat        ← bấm đúp để mở app
+├── Huong_Dan.md           ← tài liệu (README)
+├── requirements.txt
+├── du_lieu_mau\           ← 2 file Excel mẫu để kiểm thử import
+├── _internal\             ← thư viện (KHÔNG xóa, KHÔNG sửa)
+├── config\                ← TẠO TỰ ĐỘNG khi chạy: settings.json, Google API
+└── data\                  ← TẠO TỰ ĐỘNG: kho_phong.db, logs, selftest_result.txt
+```
+
+### 8.2. Chạy trên máy khác
+
+1. Copy **cả thư mục** `dist\KhoPhongCanHo\` sang máy đích (USB, zip…).
+   Không copy riêng `.exe` — thư mục `_internal` chứa thư viện Qt/Python đi kèm.
+2. Bấm đúp `KhoPhongCanHo.exe` (hoặc `ChayUngDung.bat`).
+3. Lần đầu chạy: app tự tạo `data\` + `config\` cạnh file `.exe` và mời nhập dữ liệu Excel.
+
+### 8.3. Gỡ / dọn bản build
+
+Xóa cả thư mục `dist\KhoPhongCanHo\` là đủ — không ghi gì vào registry hay AppData.
+Muốn giữ dữ liệu thì backup thư mục `data\` trước khi xóa.
+
+### 8.4. Chế độ --selftest
+
+```
+dist\KhoPhongCanHo\KhoPhongCanHo.exe --selftest
+```
+
+Chạy nền (không hiện cửa sổ), tự nhập dữ liệu mẫu → mở 3 trang → tìm kiếm → xuất Excel.
+Exit code `0` = tốt, `1` = lỗi; chi tiết ghi vào `data\selftest_result.txt`.

@@ -22,3 +22,8 @@ config/settings.json
 *.tmp
 .vscode/
 .idea/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak

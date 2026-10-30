@@ -102,6 +102,10 @@ QToolTip {{
     font-size: 12.5px; color: rgba(255,255,255,0.85); background: transparent;
     font-weight: 500;
 }}
+#PageHeaderSubtitle {{
+    font-size: 12.5px; color: rgba(255,255,255,0.85); background: transparent;
+    font-weight: 500;
+}}
 #SearchBox {{
     background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
     border-radius: 10px; padding: 10px 14px 10px 36px; font-size: 14px;

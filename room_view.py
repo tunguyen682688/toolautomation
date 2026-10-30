@@ -1,0 +1,600 @@
+# -*- coding: utf-8 -*-
+"""room_view.py - Trang Phòng: bảng ảo hoá (QAbstractTableModel) + lọc + panel chi tiết + menu chuột phải.
+
+Đặc tả ưu tiên: bảng phải CUỘN MƯỢT với hàng nghìn dòng -> chỉ tải dữ liệu theo yêu cầu,
+màu trạng thái theo RoomStatus, sửa trực tiếp (inline) gọi manager.update_room,
+đổi trạng thái không sinh ID mới, trùng dữ liệu -> hộp thoại mở bản ghi cũ.
+"""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QFont
+from PySide6.QtWidgets import (
+    QAbstractItemView, QCheckBox, QComboBox, QFrame, QHBoxLayout, QHeaderView,
+    QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSpinBox, QSplitter,
+    QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolButton,
+    QVBoxLayout, QWidget,
+)
+
+import text_utils as tu
+from inventory_manager import DuplicateError
+from models import ROOM_TABLE_COLUMNS, ROOM_TYPES, RoomFilter, RoomStatus
+from theme import status_bg, status_color, status_label
+
+
+# ------------------------------------------------------------------ delegate hiển thị
+class RoomDelegate(QStyledItemDelegate):
+    def paint(self, painter: QStyleOptionViewItem, option, index):
+        opt = QStyleOptionViewItem(option)
+        col_key = ROOM_TABLE_COLUMNS[index.column()][0]
+        row = index.row()
+        model = index.model()
+        if col_key == "status":
+            st = model.data(index, Qt.UserRole) or ""
+            opt.backgroundBrush = QColor(status_bg(st))
+            opt.font = QFont(opt.font)
+            opt.font.setBold(True)
+        elif col_key in ("price", "deposit"):
+            opt.displayAlignment = Qt.AlignRight | Qt.AlignVCenter
+        super().paint(painter, opt, index)
+
+
+# ------------------------------------------------------------------ model bảng
+class RoomTableModel(QAbstractTableModel):
+    def __init__(self, manager, parent=None):
+        super().__init__(parent)
+        self.mgr = manager
+        self.rows: List[Dict[str, Any]] = []
+        self._text = ""
+        self._filter: Optional[RoomFilter] = None
+
+    # --- data pipeline
+    def set_query(self, text: str, f: Optional[RoomFilter]):
+        self.beginResetModel()
+        self._text = text
+        self._filter = f
+        self.rows = self.mgr.rooms(text, f)
+        self.endResetModel()
+
+    def refresh(self):
+        self.set_query(self._text, self._filter)
+
+    def room_at(self, row: int) -> Optional[Dict[str, Any]]:
+        return self.rows[row] if 0 <= row < len(self.rows) else None
+
+    def room_id_at(self, row: int) -> str:
+        r = self.room_at(row)
+        return r["id"] if r else ""
+
+    # --- QAbstractTableModel
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.rows)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(ROOM_TABLE_COLUMNS)
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
+            return ROOM_TABLE_COLUMNS[section][1]
+        if role == Qt.TextAlignmentRole and orientation == Qt.Horizontal:
+            key = ROOM_TABLE_COLUMNS[section][0]
+            if key in ("price", "deposit"):
+                return int(Qt.AlignRight | Qt.AlignVCenter)
+            return int(Qt.AlignLeft | Qt.AlignVCenter)
+        return None
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.NoItemFlags
+        key = ROOM_TABLE_COLUMNS[index.column()][0]
+        f = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        if key in ("status", "price", "deposit", "room_code", "room_type"):
+            f |= Qt.ItemIsEditable
+        return f
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
+        r = self.rows[index.row()]
+        key = ROOM_TABLE_COLUMNS[index.column()][0]
+        if role == Qt.UserRole:
+            return r.get("status", "")
+        if role == Qt.ForegroundRole and key == "status":
+            return QColor(status_color(r.get("status", "")))
+        if role == Qt.TextAlignmentRole and key in ("price", "deposit"):
+            return int(Qt.AlignRight | Qt.AlignVCenter)
+        if role == Qt.ToolTipRole:
+            return (f"{r.get('room_code','')} - {r.get('address','')}\n"
+                    f"Trạng thái: {status_label(r.get('status',''))}\n"
+                    f"Cập nhật: {r.get('updated_at','')} bởi {r.get('updated_by','')}\n"
+                    f"ID nội bộ: {r.get('id','')} (không đổi khi đổi trạng thái)")
+        if role != Qt.DisplayRole:
+            return None
+        v = r.get(key, "")
+        if key == "status":
+            return status_label(v)
+        if key in ("price", "deposit"):
+            return tu.format_money(v) + " ₫"
+        if key == "surveyed":
+            return "✅ Đã KS" if v else "Chưa KS"
+        if key == "ev_support":
+            return "⚡ Có" if v else "—"
+        if key == "pet_policy":
+            return v or "—"
+        if key == "updated_at":
+            return (v or "")[:16]
+        if key == "address":
+            return v or "—"
+        return str(v) if v not in (None, "") else ""
+
+    def setData(self, index, value, role=Qt.EditRole):
+        if role != Qt.EditRole or not index.isValid():
+            return False
+        r = self.rows[index.row()]
+        key = ROOM_TABLE_COLUMNS[index.column()][0]
+        rid = r["id"]
+        changes: Dict[str, Any] = {}
+        if key == "status":
+            st = RoomStatus.from_text(value)
+            if st not in RoomStatus.LABEL or st == r.get("status"):
+                return False
+            changes["status"] = st
+        elif key == "price":
+            changes["price"] = tu.normalize_price(value)
+            if changes["price"] == int(r.get("price") or 0):
+                return False
+        elif key == "deposit":
+            changes["deposit"] = tu.normalize_price(value)
+            if changes["deposit"] == int(r.get("deposit") or 0):
+                return False
+        elif key == "room_code":
+            changes["room_code"] = str(value).strip()
+        elif key == "room_type":
+            changes["room_type"] = str(value).strip()
+        else:
+            return False
+        ok = self.mgr.try_update(rid, changes)
+        return bool(ok)
+
+
+# ------------------------------------------------------------------ widget phòng
+class RoomPage(QWidget):
+    status_changed = Signal(str, str)     # room_id, status
+    duplicate_open = Signal(str)          # mở bản ghi trùng
+
+    def __init__(self, manager, parent=None):
+        super().__init__(parent)
+        self.mgr = manager
+        self._filter = RoomFilter()
+        self._text = ""
+        self._multi_statuses = None      # bộ lọc nhiều trạng thái (từ Dashboard)
+        self._title = "Tất cả phòng"
+        self._build_ui()
+
+    # ------------------------------------------------------------------ UI
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 18, 22, 18)
+        lay.setSpacing(10)
+
+        head = QHBoxLayout()
+        self.lbl_title = QLabel("Danh sách phòng")
+        self.lbl_title.setObjectName("PageTitle")
+        head.addWidget(self.lbl_title)
+        head.addStretch(1)
+        self.btn_new = QPushButton("＋ Thêm phòng")
+        self.btn_new.setObjectName("Primary")
+        self.btn_new.clicked.connect(self._add_room)
+        head.addWidget(self.btn_new)
+        lay.addLayout(head)
+
+        # ---- bộ lọc ----
+        bar = QFrame()
+        bar.setObjectName("Toolbar")
+        bl = QHBoxLayout(bar)
+        bl.setContentsMargins(12, 8, 12, 8)
+        bl.setSpacing(8)
+
+        self.cmb_status = QComboBox()
+        self.cmb_status.addItem("Tất cả trạng thái", None)
+        for k in RoomStatus.ORDER:
+            self.cmb_status.addItem(f"● {RoomStatus.label(k)}", k)
+        self.cmb_status.currentIndexChanged.connect(self._status_changed)
+        bl.addWidget(self.cmb_status)
+
+        self.cmb_type = QComboBox()
+        self.cmb_type.addItem("Tất cả loại phòng", None)
+        for t in ROOM_TYPES:
+            self.cmb_type.addItem(t, t)
+        self.cmb_type.currentIndexChanged.connect(self._apply_filter)
+        bl.addWidget(self.cmb_type)
+
+        self.chk_ev = QCheckBox("⚡ Xe điện")
+        self.chk_ev.toggled.connect(self._apply_filter)
+        bl.addWidget(self.chk_ev)
+        self.chk_pet = QCheckBox("🐾 Cho nuôi pet")
+        self.chk_pet.toggled.connect(self._apply_filter)
+        bl.addWidget(self.chk_pet)
+        self.chk_unsurvey = QCheckBox("Chưa khảo sát")
+        self.chk_unsurvey.toggled.connect(self._apply_filter)
+        bl.addWidget(self.chk_unsurvey)
+        self.chk_deleted = QCheckBox("Hiện đã xóa")
+        self.chk_deleted.toggled.connect(self._apply_filter)
+        bl.addWidget(self.chk_deleted)
+
+        lbl = QLabel("Giá từ")
+        lbl.setObjectName("Muted")
+        bl.addWidget(lbl)
+        self.spin_min = QSpinBox()
+        self.spin_min.setRange(0, 100_000_000)
+        self.spin_min.setSingleStep(500_000)
+        self.spin_min.setSpecialValueText("Bỏ trống")
+        self.spin_min.valueChanged.connect(self._apply_filter)
+        bl.addWidget(self.spin_min)
+        lbl2 = QLabel("đến")
+        lbl2.setObjectName("Muted")
+        bl.addWidget(lbl2)
+        self.spin_max = QSpinBox()
+        self.spin_max.setRange(0, 100_000_000)
+        self.spin_max.setSingleStep(500_000)
+        self.spin_max.setSpecialValueText("Bỏ trống")
+        self.spin_max.valueChanged.connect(self._apply_filter)
+        bl.addWidget(self.spin_max)
+
+        self.btn_reset = QPushButton("Đặt lại")
+        self.btn_reset.setObjectName("Ghost")
+        self.btn_reset.clicked.connect(self.reset_filters)
+        bl.addWidget(self.btn_reset)
+        bl.addStretch(1)
+        self.lbl_count = QLabel("0 phòng")
+        self.lbl_count.setObjectName("Muted")
+        bl.addWidget(self.lbl_count)
+        lay.addWidget(bar)
+
+        # ---- bảng + panel chi tiết ----
+        split = QSplitter(Qt.Horizontal)
+        split.setChildrenCollapsible(False)
+
+        self.model = RoomTableModel(self.mgr)
+        self.table = QTableView()
+        self.table.setModel(self.model)
+        self.table.setItemDelegate(RoomDelegate(self.table))
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setAlternatingRowColors(True)
+        self.table.setSortingEnabled(False)
+        self.table.setWordWrap(False)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
+        hdr = self.table.horizontalHeader()
+        hdr.setStretchLastSection(False)
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        for i, (_, _, w) in enumerate(ROOM_TABLE_COLUMNS):
+            self.table.setColumnWidth(i, w)
+        hdr.setSectionResizeMode(2, QHeaderView.Stretch)     # cột địa chỉ co giãn
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._context_menu)
+        self.table.doubleClicked.connect(lambda idx: self._open_detail(self.model.room_id_at(idx.row())))
+        split.addWidget(self.table)
+
+        # panel chi tiết
+        detail = QFrame()
+        detail.setObjectName("Card")
+        detail.setMinimumWidth(320)
+        detail.setMaximumWidth(420)
+        dl = QVBoxLayout(detail)
+        dl.setContentsMargins(16, 14, 16, 14)
+        dl.setSpacing(8)
+        dt = QLabel("Chi tiết phòng")
+        dt.setObjectName("SectionTitle")
+        dl.addWidget(dt)
+        self.detail_body = QLabel("Chọn một dòng trong bảng để xem chi tiết.")
+        self.detail_body.setTextFormat(Qt.RichText)
+        self.detail_body.setWordWrap(True)
+        self.detail_body.setStyleSheet("background:transparent; line-height: 150%;")
+        dl.addWidget(self.detail_body, 1)
+
+        self.detail_actions = QVBoxLayout()
+        self.detail_actions.setSpacing(6)
+        dl.addLayout(self.detail_actions)
+        split.addWidget(detail)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 0)
+        lay.addWidget(split, 1)
+
+        self.table.selectionModel().currentRowChanged.connect(
+            lambda cur, prev: self._open_detail(self.model.room_id_at(cur.row()) if cur.isValid() else ""))
+
+    # ------------------------------------------------------------------ bộ lọc / query
+    def set_query(self, text: str = "", filter_dict: Optional[Dict] = None,
+                  title: Optional[str] = None):
+        self._text = text
+        if filter_dict is not None:
+            f = filter_dict.get("filter")
+            self._filter = f if isinstance(f, RoomFilter) else RoomFilter()
+            multi = list(self._filter.statuses) if len(self._filter.statuses or ()) > 1 else None
+            # đồng bộ điều khiển (tạm chặn signal để không clear bộ lọc nhiều trạng thái)
+            st = (self._filter.statuses or [None])[0] if self._filter.statuses else None
+            widgets = [self.cmb_status, self.cmb_type, self.chk_ev, self.chk_pet,
+                       self.chk_unsurvey, self.chk_deleted, self.spin_min, self.spin_max]
+            for w in widgets:
+                w.blockSignals(True)
+            i = self.cmb_status.findData(st)
+            self.cmb_status.setCurrentIndex(max(0, i))
+            i = self.cmb_type.findData((self._filter.room_types or [None])[0])
+            self.cmb_type.setCurrentIndex(max(0, i))
+            self.chk_ev.setChecked(bool(self._filter.ev_support))
+            self.chk_pet.setChecked(bool(self._filter.pet_allowed))
+            self.chk_unsurvey.setChecked(self._filter.surveyed is False)
+            self.chk_deleted.setChecked(bool(self._filter.include_deleted))
+            self.spin_min.setValue(int(self._filter.price_min or 0))
+            self.spin_max.setValue(int(self._filter.price_max or 0))
+            for w in widgets:
+                w.blockSignals(False)
+            self._multi_statuses = multi
+            if title:
+                self._title = title
+        self._apply_filter()
+
+    def set_text(self, text: str):
+        """Gõ tìm kiếm từ thanh trên cùng."""
+        self._text = text
+        self._apply_filter()
+
+    def _collect_filter(self) -> RoomFilter:
+        cur = self.cmb_status.currentData()
+        statuses = None
+        if cur:
+            multi = self._multi_statuses
+            statuses = list(multi) if (multi and cur in multi) else [cur]
+        else:
+            self._multi_statuses = None
+        types = [self.cmb_type.currentData()] if self.cmb_type.currentData() else None
+        return RoomFilter(
+            building_id=self._filter.building_id,
+            statuses=statuses,
+            room_types=types,
+            price_min=self.spin_min.value() or None,
+            price_max=self.spin_max.value() or None,
+            ev_support=True if self.chk_ev.isChecked() else None,
+            pet_allowed=True if self.chk_pet.isChecked() else None,
+            surveyed=False if self.chk_unsurvey.isChecked() else None,
+            include_deleted=self.chk_deleted.isChecked(),
+        )
+
+    def _status_changed(self, *_):
+        """Người dùng tự đổi trạng thái -> bỏ bộ lọc nhiều trạng thái từ Dashboard."""
+        self._multi_statuses = None
+        self._apply_filter()
+
+    def _apply_filter(self, *_):
+        self._filter = self._collect_filter()
+        self.model.set_query(getattr(self, "_text", ""), self._filter)
+        n = self.model.rowCount()
+        self.lbl_count.setText(f"{n} phòng" + (f" · «{self._title}»" if self._title != "Tất cả phòng" else ""))
+        self.lbl_title.setText(self._title if self._title != "Tất cả phòng" else "Danh sách phòng")
+
+    def reset_filters(self):
+        self._filter = RoomFilter()
+        self._title = "Tất cả phòng"
+        self.cmb_status.setCurrentIndex(0)
+        self.cmb_type.setCurrentIndex(0)
+        self.chk_ev.setChecked(False)
+        self.chk_pet.setChecked(False)
+        self.chk_unsurvey.setChecked(False)
+        self.chk_deleted.setChecked(False)
+        self.spin_min.setValue(0)
+        self.spin_max.setValue(0)
+        self._apply_filter()
+
+    def refresh(self):
+        self._apply_filter()
+
+    # ------------------------------------------------------------------ chi tiết
+    def _open_detail(self, rid: str):
+        # dọn nút cũ
+        while self.detail_actions.count():
+            item = self.detail_actions.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        if not rid:
+            self.detail_body.setText("Chọn một dòng trong bảng để xem chi tiết.")
+            return
+        r = self.mgr.room(rid)
+        if not r:
+            self.detail_body.setText("Không tìm thấy phòng (có thể đã xóa).")
+            return
+        st = r.get("status", "")
+        html = f"""
+        <div style='font-size:16px; font-weight:800;'>{r.get('room_code') or '(chưa có mã)'}</div>
+        <div style='color:{status_color(st)}; font-weight:700;'>● {status_label(st)}</div>
+        <hr style='border:none; border-top:1px solid #E4E8F0;'>
+        <b>Địa chỉ:</b> {r.get('address') or '—'}<br>
+        <b>Số căn / Tầng:</b> {r.get('unit_code') or '—'} / {r.get('floor') or '—'}<br>
+        <b>Loại phòng:</b> {r.get('room_type') or '—'}<br>
+        <b>Giá thuê:</b> {tu.format_money(r.get('price'))} ₫<br>
+        <b>Tiền cọc:</b> {tu.format_money(r.get('deposit'))} ₫<br>
+        <b>Sức chứa:</b> {r.get('capacity') or '—'}<br>
+        <b>Khảo sát:</b> {'✅ Đã khảo sát' if r.get('surveyed') else 'Chưa khảo sát'}<br>
+        <b>Xe điện:</b> {'⚡ Có sạc' if r.get('ev_support') else 'Không'}<br>
+        <b>Thú cưng:</b> {r.get('pet_policy') or '—'}<br>
+        <b>SĐT chủ nhà:</b> {r.get('owner_phone') or '—'}<br>
+        <b>Zalo:</b> {r.get('zalo_group') or '—'}<br>
+        <b>Drive:</b> {r.get('drive_link') or '—'}<br>
+        <b>Ghi chú:</b> {r.get('notes') or '—'}<br>
+        <hr style='border:none; border-top:1px solid #E4E8F0;'>
+        <span style='color:#64748B; font-size:11px;'>
+          ID: {r.get('id')}<br>Cập nhật: {r.get('updated_at')} bởi {r.get('updated_by')}<br>
+          Phiên bản: v{r.get('version')} · Đồng bộ: {r.get('sync_state')}
+        </span>"""
+        if r.get("needs_verify"):
+            html += ("<br><span style='color:#F97316; font-weight:700;'>⚠ Thiếu số căn - "
+                     "cần xác minh khoá nhận diện</span>")
+        self.detail_body.setText(html)
+
+        # nút hành động
+        for label, slot in (
+            ("✏️ Sửa chi tiết", lambda: self._edit_room(rid)),
+            ("📞 Gọi chủ nhà", lambda: self._call(rid)),
+            ("💬 Mở Zalo", lambda: self._zalo(rid)),
+            ("📁 Mở Drive", lambda: self._drive(rid)),
+            ("🕘 Lịch sử trạng thái", lambda: self._history(rid)),
+            ("🗑 Xóa phòng", lambda: self._delete(rid)),
+        ):
+            b = QPushButton(label)
+            if label.startswith("🗑"):
+                b.setObjectName("Danger")
+            b.clicked.connect(slot)
+            self.detail_actions.addWidget(b)
+
+    # ------------------------------------------------------------------ hành động
+    def _current_room_id(self) -> str:
+        idx = self.table.currentIndex()
+        return self.model.room_id_at(idx.row()) if idx.isValid() else ""
+
+    def _add_room(self):
+        from edit_form import RoomEditForm
+        dlg = RoomEditForm(self.mgr, None, self)
+        dlg.exec()
+        self.refresh()
+
+    def _edit_room(self, rid: str):
+        from edit_form import RoomEditForm
+        r = self.mgr.room(rid)
+        if not r:
+            return
+        dlg = RoomEditForm(self.mgr, r, self)
+        if dlg.exec():
+            self.refresh()
+            self._open_detail(rid)
+
+    def _call(self, rid: str):
+        from google_drive import open_phone
+        r = self.mgr.room(rid)
+        open_phone((r or {}).get("owner_phone", ""))
+
+    def _zalo(self, rid: str):
+        from google_drive import open_zalo
+        r = self.mgr.room(rid)
+        open_zalo((r or {}).get("zalo_group", ""))
+
+    def _drive(self, rid: str):
+        from google_drive import open_drive
+        r = self.mgr.room(rid)
+        open_drive((r or {}).get("drive_link", ""))
+
+    def _history(self, rid: str):
+        from PySide6.QtWidgets import QDialog, QTextBrowser, QDialogButtonBox
+        r = self.mgr.room(rid) or {}
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Lịch sử - {r.get('room_code', '')}")
+        dlg.setMinimumSize(560, 380)
+        v = QVBoxLayout(dlg)
+        tb = QTextBrowser()
+        recs = self.mgr.history(rid, 200)
+        if not recs:
+            tb.setPlainText("Chưa có thay đổi trạng thái nào.")
+        else:
+            lines = []
+            for rec in recs:
+                lines.append(f"{rec['changed_at']}  |  {status_label(rec['old_status'])} → "
+                             f"{status_label(rec['new_status'])}  |  {rec['actor']}"
+                             + (f"  |  {rec['note']}" if rec.get("note") else ""))
+            tb.setPlainText("\n".join(lines))
+        v.addWidget(tb)
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(dlg.reject)
+        bb.accepted.connect(dlg.accept)
+        v.addWidget(bb)
+        dlg.exec()
+
+    def _delete(self, rid: str):
+        r = self.mgr.room(rid) or {}
+        if self.mgr.settings.get("confirm_delete", True):
+            ans = QMessageBox.question(
+                self, "Xóa phòng",
+                f"Xóa mềm phòng <b>{r.get('room_code', '')}</b>?\n"
+                f"(Vẫn khôi phục được từ dữ liệu - không mất lịch sử)")
+            if ans != QMessageBox.Yes:
+                return
+        try:
+            self.mgr.delete_room(rid)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Không xóa được", str(e))
+            return
+        self.refresh()
+
+    def _context_menu(self, pos):
+        rid = self._current_room_id()
+        if not rid:
+            return
+        r = self.mgr.room(rid) or {}
+        menu = QMenu(self)
+
+        act_open = menu.addAction("✏️ Sửa chi tiết")
+        menu.addSeparator()
+        sub = menu.addMenu("⚡ Đổi trạng thái (không tạo ID mới)")
+        for k in RoomStatus.ORDER:
+            a = sub.addAction(f"{status_label(k)}")
+            a.setData(k)
+            if k == r.get("status"):
+                a.setEnabled(False)
+        menu.addSeparator()
+        act_dup = menu.addAction("🧬 Nhân bản phòng")
+        act_del = menu.addAction("🗑 Xóa phòng")
+        act_hist = menu.addAction("🕘 Lịch sử trạng thái")
+
+        chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen is None:
+            return
+        if chosen is act_open:
+            self._edit_room(rid)
+        elif chosen in sub.actions():
+            self._change_status(rid, chosen.data())
+        elif chosen is act_dup:
+            try:
+                self.mgr.duplicate_room(rid)
+                self.refresh()
+            except DuplicateError as e:
+                self._show_duplicate(e)
+            except Exception as e:  # noqa: BLE001
+                QMessageBox.critical(self, "Không nhân bản được", str(e))
+        elif chosen is act_del:
+            self._delete(rid)
+        elif chosen is act_hist:
+            self._history(rid)
+
+    def _change_status(self, rid: str, new_status: str):
+        """Đổi trạng thái nhanh - ID phòng GIỮ NGUYÊN, có ghi lịch sử."""
+        try:
+            r = self.mgr.change_status(rid, new_status)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Không đổi được trạng thái", str(e))
+            return
+        self.status_changed.emit(r["id"], new_status)
+        self.refresh()
+        self._open_detail(rid)
+
+    def _show_duplicate(self, err: DuplicateError):
+        res = err.result
+        ex = res.existing_room or {}
+        msg = res.messages("\n")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Phát hiện trùng dữ liệu")
+        box.setText("Dữ liệu trùng với bản ghi đang có trong hệ thống.")
+        box.setInformativeText(msg)
+        if ex.get("id"):
+            box.addButton(f"Mở bản ghi cũ: {ex.get('room_code', '')}", QMessageBox.AcceptRole)
+            box.addButton("Vẫn lưu bản mới", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        ret = box.exec()
+        if ex.get("id") and ret == QMessageBox.AcceptRole:
+            self.duplicate_open.emit(ex["id"])
+            self.reset_filters()
+            self.refresh()
+            self._open_detail(ex["id"])

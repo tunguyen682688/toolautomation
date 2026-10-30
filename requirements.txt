@@ -1,0 +1,11 @@
+# === Bắt buộc (chạy offline đầy đủ chức năng) ===
+PySide6>=6.6
+openpyxl>=3.1
+
+# === Kết nối Google (bật khi có credentials) ===
+google-api-python-client>=2.100
+google-auth>=2.23
+google-auth-httplib2>=0.2
+
+# Ghi chú: KHÔNG dùng pandas (môi trường Windows có chính sách AppControl chặn DLL của numpy).
+# Excel được đọc/ghi trực tiếp bằng openpyxl -> nhanh hơn và nhẹ hơn.

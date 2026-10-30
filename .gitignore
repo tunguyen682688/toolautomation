@@ -1,0 +1,24 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# --- Dữ liệu nội bộ (KHÔNG chia sẻ) ---
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# --- Bí mật Google + cấu hình cục bộ của máy (KHÔNG commit) ---
+config/service_account*.json
+config/settings.json
+*.pem
+*.p12
+
+# --- Office / editor ---
+~$*.xlsx
+*.tmp
+.vscode/
+.idea/

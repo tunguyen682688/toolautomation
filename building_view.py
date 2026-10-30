@@ -1,0 +1,354 @@
+# -*- coding: utf-8 -*-
+"""building_view.py - Trang Tòa nhà: lưới thẻ tòa (FlowLayout) + form thêm/sửa tòa.
+
+Mỗi thẻ: địa chỉ, chủ nhà, chip số phòng trống/thuê/cọc, nút xem phòng, gọi / Zalo / Drive.
+"""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtWidgets import (
+    QDialog, QDialogButtonBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
+    QLineEdit, QLayout, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
+    QStyle, QToolButton, QVBoxLayout, QWidget,
+)
+
+import text_utils as tu
+from google_drive import open_drive, open_phone, open_zalo
+from theme import C_ACCENT, C_BORDER, status_color
+
+
+# ------------------------------------------------------------------ layout tự bọc dòng
+class FlowLayout(QLayout):
+    """Layout bọc dòng: các thẻ tự xuống hàng như khối Lego (phù hợp lưới thẻ)."""
+
+    def __init__(self, parent=None, hspacing: int = 12, vspacing: int = 12):
+        super().__init__(parent)
+        self._items: List[Any] = []
+        self.hspacing, self.vspacing = hspacing, vspacing
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientations(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for it in self._items:
+            size = size.expandedTo(it.minimumSize())
+        m = self.contentsMargins()
+        return size + QSize(2 * m.left(), 2 * m.top())
+
+    def _do_layout(self, rect: QRect, test_only: bool) -> int:
+        x, y = rect.x(), rect.y()
+        lineheight = 0
+        for item in self._items:
+            wid = item.widget()
+            space_x = self.hspacing
+            space_y = self.vspacing
+            nextx = x + item.sizeHint().width() + space_x
+            if nextx - space_x > rect.right() and lineheight > 0:
+                x = rect.x()
+                y = y + lineheight + space_y
+                nextx = x + item.sizeHint().width() + space_x
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+            x = nextx
+            lineheight = max(lineheight, item.sizeHint().height())
+        return y + lineheight - rect.y()
+
+
+# ------------------------------------------------------------------ form tòa nhà
+class BuildingForm(QDialog):
+    """8 nhóm dữ liệu (áp dụng cho tòa: địa chỉ / chủ nhà / quy định / hoa hồng...)."""
+
+    def __init__(self, building: Optional[Dict[str, Any]] = None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Sửa thông tin tòa nhà" if building else "Thêm tòa nhà mới")
+        self.setMinimumWidth(560)
+        self.building = building or {}
+        self.fields: Dict[str, QLineEdit] = {}
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 14)
+        lay.setSpacing(10)
+
+        def add_group(title: str, rows: List[tuple]):
+            box = QFrame()
+            box.setObjectName("Card")
+            gl = QVBoxLayout(box)
+            gl.setContentsMargins(14, 10, 14, 12)
+            gl.setSpacing(7)
+            t = QLabel(title)
+            t.setObjectName("SectionTitle")
+            t.setStyleSheet("font-size:13.5px; background:transparent;")
+            gl.addWidget(t)
+            form = QFormLayout()
+            form.setLabelAlignment(Qt.AlignRight)
+            form.setHorizontalSpacing(12)
+            form.setVerticalSpacing(8)
+            for key, label in rows:
+                ed = QLineEdit(str(self.building.get(key, "") or ""))
+                ed.setPlaceholderText(label)
+                self.fields[key] = ed
+                form.addRow(label + ":", ed)
+            gl.addLayout(form)
+            lay.addWidget(box)
+
+        add_group("1. Địa chỉ tòa nhà", [
+            ("house_number", "Số nhà"), ("street", "Tên đường"),
+            ("ward", "Phường"), ("district", "Quận / Khu vực cũ"),
+        ])
+        add_group("2. Chủ nhà / Admin quản lý", [
+            ("owner_name", "Chủ tòa / Admin"), ("phone", "Số điện thoại"),
+            ("zalo_group", "Link Group Zalo"),
+        ])
+        add_group("3. Quy định & hoa hồng", [
+            ("ev_policy", "Quy định xe điện"), ("pet_policy", "Quy định thú cưng"),
+            ("commission", "Chính sách hoa hồng sale"), ("notes", "Ghi chú khác"),
+        ])
+
+        btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        lay.addWidget(btns)
+
+    def payload(self) -> Dict[str, Any]:
+        return {k: ed.text().strip() for k, ed in self.fields.items()}
+
+
+# ------------------------------------------------------------------ thẻ tòa nhà
+class BuildingCard(QFrame):
+    open_rooms = Signal(dict)          # filter
+    edit_requested = Signal(str)
+
+    def __init__(self, b: Dict[str, Any], parent=None):
+        super().__init__(parent)
+        self.setObjectName("Card")
+        self.b = b
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumWidth(330)
+        self.setMaximumWidth(430)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(15, 13, 15, 13)
+        lay.setSpacing(7)
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        code = QLabel(f"<b>{b.get('code', '')}</b>")
+        code.setStyleSheet(f"color:{C_ACCENT}; background:transparent; font-size:12px;")
+        top.addWidget(code)
+        addr = QLabel(f"<b style='font-size:15px'>{b.get('display', '')}</b>")
+        addr.setTextFormat(Qt.RichText)
+        addr.setStyleSheet("background:transparent;")
+        addr.setWordWrap(True)
+        top.addWidget(addr, 1)
+        lay.addLayout(top)
+
+        owner = QLabel(f"👤 {b.get('owner_name') or '—'} &nbsp;·&nbsp; 📞 {b.get('phone') or '—'}")
+        owner.setTextFormat(Qt.RichText)
+        owner.setObjectName("Muted")
+        owner.setStyleSheet("background:transparent; font-size:12px;")
+        owner.setWordWrap(True)
+        lay.addWidget(owner)
+
+        # chip số phòng
+        chips = QHBoxLayout()
+        chips.setSpacing(6)
+        chips.addWidget(self._chip(f"Trống {b.get('rooms_vacant', 0)}", "#16A34A", "vacant"))
+        chips.addWidget(self._chip(f"Trả cọc/giữ {b.get('rooms_deposit', 0)}", "#F97316",
+                                   ["deposit", "holding"]))
+        chips.addWidget(self._chip(f"Thuê {b.get('rooms_rented', 0)}", "#DC2626", "rented"))
+        chips.addWidget(self._chip(f"Sắp trống {b.get('rooms_soon', 0)}", "#EAB308", "soon_vacant"))
+        total = QLabel(f"Σ {b.get('rooms_total', 0)}")
+        total.setStyleSheet("background:transparent; color:#64748B; font-weight:700; padding:4px 6px;")
+        chips.addWidget(total)
+        chips.addStretch(1)
+        lay.addLayout(chips)
+
+        meta = QLabel(f"Xe điện: {b.get('ev_policy') or '—'} &nbsp;·&nbsp; "
+                      f"Pet: {b.get('pet_policy') or '—'}")
+        meta.setTextFormat(Qt.RichText)
+        meta.setObjectName("Muted")
+        meta.setStyleSheet("background:transparent; font-size:11.5px;")
+        meta.setWordWrap(True)
+        lay.addWidget(meta)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        btn_rooms = QPushButton("📋 Danh sách phòng")
+        btn_rooms.setObjectName("Primary")
+        btn_rooms.clicked.connect(self._open_rooms)
+        actions.addWidget(btn_rooms)
+
+        btn_edit = QPushButton("✏️ Sửa")
+        btn_edit.clicked.connect(lambda: self.edit_requested.emit(self.b["id"]))
+        actions.addWidget(btn_edit)
+
+        if b.get("phone"):
+            btn_call = QToolButton()
+            btn_call.setText("📞")
+            btn_call.setToolTip(f"Gọi {b.get('phone')}")
+            btn_call.clicked.connect(lambda: open_phone(self.b.get("phone", "")))
+            actions.addWidget(btn_call)
+
+        if b.get("zalo_group"):
+            btn_zalo = QToolButton()
+            btn_zalo.setText("💬")
+            btn_zalo.setToolTip("Mở Group Zalo")
+            btn_zalo.clicked.connect(lambda: open_zalo(self.b.get("zalo_group", "")))
+            actions.addWidget(btn_zalo)
+        actions.addStretch(1)
+        lay.addLayout(actions)
+
+    def _chip(self, text: str, color: str, status) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            f"background:{color}1A; color:{color}; border-radius:11px; padding:4px 10px;"
+            f"font-size:11.5px; font-weight:700;"
+        )
+        return lbl
+
+    def _open_rooms(self):
+        from models import RoomFilter
+        self.open_rooms.emit({"filter": RoomFilter(building_id=self.b["id"]),
+                              "title": self.b.get("display", "")})
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self._open_rooms()
+        super().mousePressEvent(ev)
+
+
+# ------------------------------------------------------------------ trang tòa nhà
+class BuildingPage(QWidget):
+    open_rooms = Signal(dict)
+
+    def __init__(self, manager, parent=None):
+        super().__init__(parent)
+        self.mgr = manager
+        self._cards: List[BuildingCard] = []
+        self._build_ui()
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 18, 22, 18)
+        lay.setSpacing(12)
+
+        head = QHBoxLayout()
+        t = QLabel("Danh mục tòa nhà & chủ nhà")
+        t.setObjectName("PageTitle")
+        head.addWidget(t)
+        head.addStretch(1)
+        self.btn_add = QPushButton("＋ Thêm tòa nhà")
+        self.btn_add.setObjectName("Primary")
+        self.btn_add.clicked.connect(self._add)
+        head.addWidget(self.btn_add)
+        lay.addLayout(head)
+
+        filt = QFrame()
+        filt.setObjectName("Toolbar")
+        fl = QHBoxLayout(filt)
+        fl.setContentsMargins(12, 8, 12, 8)
+        fl.setSpacing(8)
+        from PySide6.QtWidgets import QLineEdit as _QLE
+        self.ed_search = _QLE()
+        self.ed_search.setPlaceholderText("🔎 Lọc theo địa chỉ / chủ nhà / SĐT...")
+        self.ed_search.setMinimumWidth(320)
+        self.ed_search.textChanged.connect(self._apply_filter)
+        fl.addWidget(self.ed_search, 1)
+        self.lbl_count = QLabel("")
+        self.lbl_count.setObjectName("Muted")
+        fl.addWidget(self.lbl_count)
+        lay.addWidget(filt)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        self.container = QWidget()
+        self.flow = FlowLayout(self.container, 14, 14)
+        self.flow.setContentsMargins(0, 0, 6, 0)
+        self.container.setLayout(self.flow)
+        scroll.setWidget(self.container)
+        lay.addWidget(scroll, 1)
+
+    # ------------------------------------------------------------------ dữ liệu
+    def refresh(self, text: str = ""):
+        text = text or self.ed_search.text()
+        buildings = self.mgr.buildings(text=text)
+        # xoá thẻ cũ
+        while self.flow.count():
+            item = self.flow.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._cards = []
+        if not buildings:
+            empty = QLabel("Không có tòa nhà nào khớp bộ lọc.")
+            empty.setObjectName("Muted")
+            self.flow.addWidget(empty)
+        for b in buildings:
+            card = BuildingCard(b)
+            card.open_rooms.connect(self.open_rooms.emit)
+            card.edit_requested.connect(self._edit)
+            self.flow.addWidget(card)
+            self._cards.append(card)
+        self.lbl_count.setText(f"{len(buildings)} tòa nhà")
+
+    def _apply_filter(self, *_):
+        self.refresh()
+
+    def _add(self):
+        dlg = BuildingForm(None, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        payload = dlg.payload()
+        if not (payload.get("house_number") or payload.get("street")):
+            QMessageBox.warning(self, "Thiếu dữ liệu", "Cần ít nhất số nhà hoặc tên đường.")
+            return
+        try:
+            self.mgr.save_building(payload, bid=None)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Không lưu được", str(e))
+            return
+        self.refresh()
+
+    def _edit(self, bid: str):
+        b = self.mgr.building(bid)
+        if not b:
+            return
+        dlg = BuildingForm(b, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        try:
+            self.mgr.save_building(dlg.payload(), bid=bid)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Không lưu được", str(e))
+            return
+        self.refresh()

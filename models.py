@@ -109,6 +109,7 @@ class RoomFilter:
     price_min: Optional[int] = None
     price_max: Optional[int] = None
     ev_support: Optional[bool] = None
+    foreign_guest: Optional[bool] = None
     pet_allowed: Optional[bool] = None
     surveyed: Optional[bool] = None
     needs_verify: Optional[bool] = None
@@ -118,7 +119,7 @@ class RoomFilter:
     def key(self) -> Tuple:
         return (
             self.building_id, tuple(self.statuses or ()), tuple(self.room_types or ()),
-            self.price_min, self.price_max, self.ev_support, self.pet_allowed,
+            self.price_min, self.price_max, self.ev_support, self.foreign_guest, self.pet_allowed,
             self.surveyed, self.needs_verify, self.include_deleted, tu.norm(self.text),
         )
 
@@ -182,6 +183,7 @@ class Room:
     zalo_group: str = ""
     drive_link: str = ""
     notes: str = ""
+    foreign_guest: int = 0   # 1 = phòng nhận khách nước ngoài
     needs_verify: int = 0
     search_norm: str = ""
     external_ref: str = ""
@@ -230,6 +232,7 @@ ROOM_COLUMNS: List[Dict] = [
     {"name": "zalo_group",  "header": "Group Zalo Tòa Nhà",         "aliases": ["group zalo", "zalo", "zalo toa nha"], "type": "text", "editable": True},
     {"name": "drive_link",  "header": "Link Drive Kho Media",       "aliases": ["link drive", "drive", "link google drive", "media"], "type": "text", "editable": True},
     {"name": "notes",       "header": "Chính Sách & Ghi Chú Chi Tiết", "aliases": ["chinh sach", "ghi chu", "notes", "chinh sach ghi chu", "ghi chu chi tiet"], "type": "text", "editable": True},
+    {"name": "foreign_guest","header": "Nhận Khách Nước Ngoài",        "aliases": ["nuoc ngoai", "khach nuoc ngoai", "foreign", "foreign guest", "nhan nuoc ngoai"], "type": "bool", "editable": True},
     {"name": "unit_code",   "header": "Số Căn",                     "aliases": ["so can", "socc", "so can ho", "unit", "ma can"], "type": "text", "editable": True},
     {"name": "floor",       "header": "Tầng",                       "aliases": ["tang", "floor", "lau"], "type": "text", "editable": True},
 ]
@@ -247,6 +250,7 @@ ROOM_TABLE_COLUMNS: List[Tuple[str, str, int]] = [
     ("surveyed",    "Khảo sát",     90),
     ("ev_support",  "Xe điện",      80),
     ("pet_policy",  "Thú cưng",     100),
+    ("foreign_guest","Khách NGO",    85),
     ("capacity",    "Người/Xe",     95),
     ("owner_phone", "SĐT chủ nhà", 165),
     ("updated_at",  "Cập nhật",    145),

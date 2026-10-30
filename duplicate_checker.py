@@ -337,6 +337,7 @@ class DuplicateChecker:
         "price": "price", "deposit": "deposit", "capacity": "capacity", "rating": "rating",
         "owner_phone": "owner_phone", "zalo_group": "zalo_group", "drive_link": "drive_link",
         "notes": "notes", "pet_policy": "pet_policy",
+        "ev_support": "ev_support", "surveyed": "surveyed", "foreign_guest": "foreign_guest",
     }
 
     @classmethod
@@ -348,6 +349,8 @@ class DuplicateChecker:
         if field_name == "ev_support":
             return "1" if v else "0"
         if field_name == "surveyed":
+            return "1" if v else "0"
+        if field_name == "foreign_guest":
             return "1" if v else "0"
         return tu.norm(v)
 

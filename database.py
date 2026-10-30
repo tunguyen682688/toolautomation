@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS rooms (
     zalo_group    TEXT NOT NULL DEFAULT '',
     drive_link    TEXT NOT NULL DEFAULT '',
     notes         TEXT NOT NULL DEFAULT '',
+    foreign_guest INTEGER NOT NULL DEFAULT 0, --1 = phòng nhận khách nước ngoài
     needs_verify  INTEGER NOT NULL DEFAULT 0,
     search_norm   TEXT NOT NULL DEFAULT '',
     external_ref  TEXT NOT NULL DEFAULT '',
@@ -218,6 +219,14 @@ class Database:
     def migrate(self) -> None:
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            # --- migration cột mới cho DB cũ (CREATE TABLE IF NOT EXISTS không thêm cột vào bảng đã có) ---
+            try:
+                cols = [r[1] for r in self._conn.execute("PRAGMA table_info(rooms)").fetchall()]
+                if "foreign_guest" not in cols:
+                    self._conn.execute(
+                        "ALTER TABLE rooms ADD COLUMN foreign_guest INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
             ver = self._conn.execute("PRAGMA user_version").fetchone()[0]
             if ver != SCHEMA_VERSION:
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")

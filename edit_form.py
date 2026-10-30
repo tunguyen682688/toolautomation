@@ -175,8 +175,10 @@ class RoomEditForm(QDialog):
         _, f4 = self._group(4)
         self.ed["capacity"] = self._line("Ví dụ: 2 Ng/2 Xe")
         self.ed["ev_support"] = QCheckBox("⚡ Hỗ trợ sạc xe điện")
+        self.ed["foreign_guest"] = QCheckBox("🌏 Nhận khách nước ngoài")
         f4.addRow("Tối đa (người/xe):", self.ed["capacity"])
         f4.addRow("", self.ed["ev_support"])
+        f4.addRow("", self.ed["foreign_guest"])
 
         _, f5 = self._group(5)
         self.ed["pet_policy"] = QComboBox()
@@ -249,6 +251,8 @@ class RoomEditForm(QDialog):
             elif isinstance(w, QCheckBox):
                 if key == "surveyed":
                     w.setChecked(bool(r.get("surveyed")))
+                elif key == "foreign_guest":
+                    w.setChecked(bool(r.get("foreign_guest")))
                 else:
                     w.setChecked(bool(r.get("ev_support")))
             elif isinstance(w, QPlainTextEdit):
@@ -462,6 +466,7 @@ class RoomEditForm(QDialog):
             "deposit": tu.normalize_price(txt("deposit")),
             "capacity": txt("capacity"),
             "ev_support": 1 if self.ed["ev_support"].isChecked() else 0,
+            "foreign_guest": 1 if self.ed["foreign_guest"].isChecked() else 0,
             "pet_policy": pet_policy,
             "rating": txt("rating"),
             "owner_phone": txt("owner_phone"),

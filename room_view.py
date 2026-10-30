@@ -122,6 +122,8 @@ class RoomTableModel(QAbstractTableModel):
             return "✅ Đã KS" if v else "Chưa KS"
         if key == "ev_support":
             return "⚡ Có" if v else "—"
+        if key == "foreign_guest":
+            return "🌏 Có" if v else "—"
         if key == "pet_policy":
             return v or "—"
         if key == "updated_at":
@@ -231,6 +233,9 @@ class RoomPage(QWidget):
         self.chk_ev = QCheckBox("⚡ Xe điện")
         self.chk_ev.toggled.connect(self._apply_filter)
         bl.addWidget(self.chk_ev)
+        self.chk_foreign = QCheckBox("🌏 Khách nước ngoài")
+        self.chk_foreign.toggled.connect(self._apply_filter)
+        bl.addWidget(self.chk_foreign)
         self.chk_pet = QCheckBox("🐾 Cho nuôi pet")
         self.chk_pet.toggled.connect(self._apply_filter)
         bl.addWidget(self.chk_pet)
@@ -355,7 +360,8 @@ class RoomPage(QWidget):
             multi = list(self._filter.statuses) if len(self._filter.statuses or ()) > 1 else None
             # đồng bộ điều khiển (tạm chặn signal để không clear bộ lọc nhiều trạng thái)
             st = (self._filter.statuses or [None])[0] if self._filter.statuses else None
-            widgets = [self.cmb_status, self.cmb_type, self.cmb_building, self.chk_ev, self.chk_pet,
+            widgets = [self.cmb_status, self.cmb_type, self.cmb_building, self.chk_ev, self.chk_foreign,
+                       self.chk_pet,
                        self.chk_unsurvey, self.chk_deleted, self.spin_min, self.spin_max]
             for w in widgets:
                 w.blockSignals(True)
@@ -400,6 +406,7 @@ class RoomPage(QWidget):
             price_min=self.spin_min.value() or None,
             price_max=self.spin_max.value() or None,
             ev_support=True if self.chk_ev.isChecked() else None,
+            foreign_guest=True if self.chk_foreign.isChecked() else None,
             pet_allowed=True if self.chk_pet.isChecked() else None,
             surveyed=False if self.chk_unsurvey.isChecked() else None,
             include_deleted=self.chk_deleted.isChecked(),
@@ -424,6 +431,7 @@ class RoomPage(QWidget):
         self.cmb_type.setCurrentIndex(0)
         self.cmb_building.setCurrentIndex(0)
         self.chk_ev.setChecked(False)
+        self.chk_foreign.setChecked(False)
         self.chk_pet.setChecked(False)
         self.chk_unsurvey.setChecked(False)
         self.chk_deleted.setChecked(False)

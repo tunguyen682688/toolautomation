@@ -38,6 +38,7 @@ class Doc:
     ev: bool
     pet: bool
     surveyed: bool
+    foreign_guest: bool
     needs_verify: bool
     deleted: bool
     code_key: str
@@ -68,6 +69,7 @@ def _make_doc(row: Dict) -> Doc:
         ev=bool(row.get("ev_support")),
         pet=bool(row.get("pet_ok")),
         surveyed=bool(row.get("surveyed")),
+        foreign_guest=bool(row.get("foreign_guest")),
         needs_verify=bool(row.get("needs_verify")),
         deleted=bool(row.get("deleted")),
         code_key=code_key,
@@ -183,6 +185,8 @@ class SearchIndex:
         if f.ev_support is not None and doc.ev != f.ev_support:
             return False
         if f.pet_allowed is not None and doc.pet != f.pet_allowed:
+            return False
+        if f.foreign_guest is not None and doc.foreign_guest != f.foreign_guest:
             return False
         if f.surveyed is not None and doc.surveyed != f.surveyed:
             return False

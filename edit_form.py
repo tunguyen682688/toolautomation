@@ -200,7 +200,7 @@ class RoomEditForm(QDialog):
     def _build_form(self):
         self.ed: Dict[str, QWidget] = {}
 
-        # ---------- nhóm 1: Địa chỉ ----------
+        # ---------- nhóm 1: Địa chỉ (1 hàng 4 cột, giống cột Excel) ----------
         _, f1 = self._group(1)
         self.ed["house_number"] = self._line("Ví dụ: 86, 79/16, 371A")
         self.ed["street"] = self._line("Ví dụ: Nguyễn Thượng Hiền")
@@ -210,10 +210,12 @@ class RoomEditForm(QDialog):
         f1.addWidget(self.ed["house_number"], 0, 1)
         f1.addWidget(QLabel("Tên đường:"), 0, 2)
         f1.addWidget(self.ed["street"], 0, 3)
-        f1.addWidget(QLabel("Phường:"), 1, 0)
-        f1.addWidget(self.ed["ward"], 1, 1)
-        f1.addWidget(QLabel("Quận / Khu vực:"), 1, 2)
-        f1.addWidget(self.ed["district"], 1, 3)
+        f1.addWidget(QLabel("Phường:"), 0, 4)
+        f1.addWidget(self.ed["ward"], 0, 5)
+        f1.addWidget(QLabel("Quận / Khu vực:"), 0, 6)
+        f1.addWidget(self.ed["district"], 0, 7)
+        f1.setColumnStretch(8, 1)   # đẩy các ô sang trái, không dồn một bên
+
 
         # ---------- nhóm 2: Nhận diện ----------
         _, f2 = self._group(2)

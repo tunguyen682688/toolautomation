@@ -222,6 +222,12 @@ class RoomPage(QWidget):
         self.cmb_type.currentIndexChanged.connect(self._apply_filter)
         bl.addWidget(self.cmb_type)
 
+        self.cmb_building = QComboBox()
+        self.cmb_building.addItem("Tất cả tòa nhà", None)
+        self.cmb_building.setMinimumWidth(200)
+        self.cmb_building.currentIndexChanged.connect(self._apply_filter)
+        bl.addWidget(self.cmb_building)
+
         self.chk_ev = QCheckBox("⚡ Xe điện")
         self.chk_ev.toggled.connect(self._apply_filter)
         bl.addWidget(self.chk_ev)
@@ -254,8 +260,9 @@ class RoomPage(QWidget):
         self.spin_max.valueChanged.connect(self._apply_filter)
         bl.addWidget(self.spin_max)
 
-        self.btn_reset = QPushButton("Đặt lại")
+        self.btn_reset = QPushButton("🏠 Xem tất cả / Đặt lại")
         self.btn_reset.setObjectName("Ghost")
+        self.btn_reset.setToolTip("Bỏ toàn bộ bộ lọc, xem toàn bộ danh sách phòng")
         self.btn_reset.clicked.connect(self.reset_filters)
         bl.addWidget(self.btn_reset)
         bl.addStretch(1)
@@ -319,6 +326,25 @@ class RoomPage(QWidget):
         self.table.selectionModel().currentRowChanged.connect(
             lambda cur, prev: self._open_detail(self.model.room_id_at(cur.row()) if cur.isValid() else ""))
 
+        # tải danh sách tòa nhà vào bộ lọc
+        self._load_buildings()
+
+    def _load_buildings(self):
+        """Đổ danh sách tòa nhà vào combobox lọc (giữ nguyên lựa chọn hiện tại nếu có)."""
+        cur = self.cmb_building.currentData()
+        self.cmb_building.blockSignals(True)
+        self.cmb_building.clear()
+        self.cmb_building.addItem("Tất cả tòa nhà", None)
+        try:
+            for b in self.mgr.buildings():
+                self.cmb_building.addItem(f"{b.get('code','')} — {b.get('display','')}", b["id"])
+        except Exception:  # noqa: BLE001
+            pass
+        # khôi phục lựa chọn nếu toà vẫn còn
+        idx = self.cmb_building.findData(cur)
+        self.cmb_building.setCurrentIndex(max(0, idx))
+        self.cmb_building.blockSignals(False)
+
     # ------------------------------------------------------------------ bộ lọc / query
     def set_query(self, text: str = "", filter_dict: Optional[Dict] = None,
                   title: Optional[str] = None):
@@ -329,7 +355,7 @@ class RoomPage(QWidget):
             multi = list(self._filter.statuses) if len(self._filter.statuses or ()) > 1 else None
             # đồng bộ điều khiển (tạm chặn signal để không clear bộ lọc nhiều trạng thái)
             st = (self._filter.statuses or [None])[0] if self._filter.statuses else None
-            widgets = [self.cmb_status, self.cmb_type, self.chk_ev, self.chk_pet,
+            widgets = [self.cmb_status, self.cmb_type, self.cmb_building, self.chk_ev, self.chk_pet,
                        self.chk_unsurvey, self.chk_deleted, self.spin_min, self.spin_max]
             for w in widgets:
                 w.blockSignals(True)
@@ -337,6 +363,8 @@ class RoomPage(QWidget):
             self.cmb_status.setCurrentIndex(max(0, i))
             i = self.cmb_type.findData((self._filter.room_types or [None])[0])
             self.cmb_type.setCurrentIndex(max(0, i))
+            i = self.cmb_building.findData(self._filter.building_id)
+            self.cmb_building.setCurrentIndex(max(0, i))
             self.chk_ev.setChecked(bool(self._filter.ev_support))
             self.chk_pet.setChecked(bool(self._filter.pet_allowed))
             self.chk_unsurvey.setChecked(self._filter.surveyed is False)
@@ -364,8 +392,9 @@ class RoomPage(QWidget):
         else:
             self._multi_statuses = None
         types = [self.cmb_type.currentData()] if self.cmb_type.currentData() else None
+        building_id = self.cmb_building.currentData()
         return RoomFilter(
-            building_id=self._filter.building_id,
+            building_id=building_id,
             statuses=statuses,
             room_types=types,
             price_min=self.spin_min.value() or None,
@@ -393,6 +422,7 @@ class RoomPage(QWidget):
         self._title = "Tất cả phòng"
         self.cmb_status.setCurrentIndex(0)
         self.cmb_type.setCurrentIndex(0)
+        self.cmb_building.setCurrentIndex(0)
         self.chk_ev.setChecked(False)
         self.chk_pet.setChecked(False)
         self.chk_unsurvey.setChecked(False)

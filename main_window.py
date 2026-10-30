@@ -305,7 +305,12 @@ class MainWindow(QMainWindow):
             self.page_buildings.refresh()
         elif key == "rooms":
             self.page_rooms.set_text(self.search.text())
-            self.page_rooms.refresh()
+            # vào trang phòng -> nếu không đang tìm kiếm, hiển thị TOÀN BỘ phòng
+            # (bỏ filter toà nhà có thể được chọn từ trang Tòa nhà trước đó)
+            if not self.search.text():
+                self.page_rooms.reset_filters()
+            else:
+                self.page_rooms.refresh()
 
     def _open_rooms_from_dashboard(self, filt: Dict):
         self.navigate("rooms")

@@ -172,7 +172,15 @@ class RoomsInlinePanel(QFrame):
         self.lbl_sub.setWordWrap(True)
         lay.addWidget(self.lbl_sub)
 
-        # danh sách phòng ngắn gọn (1 dòng mỗi phòng: mã + trạng thái + giá)
+        # --- nút xem tất cả (không giới hạn tòa) ---
+        self.btn_all = QPushButton("🏠 Xem tất cả phòng")
+        self.btn_all.setObjectName("Ghost")
+        self.btn_all.setToolTip("Xem toàn bộ danh sách phòng (không lọc theo tòa)")
+        self.btn_all.clicked.connect(lambda: self.open_full_table.emit(
+            {"filter": RoomFilter(), "title": "Tất cả phòng"}))
+        lay.addWidget(self.btn_all)
+
+        # danh sách phòng ngắn gọn (1 dòng mỗi phòng: mã + loại + trạng thái + giá)
         self.model = QStandardItemModel()
         self.list = QListView()
         self.list.setModel(self.model)
@@ -214,8 +222,9 @@ class RoomsInlinePanel(QFrame):
         self.btn_empty.hide()
         for r in rooms:
             st = r.get("status", "")
+            loai = r.get("room_type") or "(chưa rõ)"
             item = QStandardItem(
-                f"{r.get('room_code') or '(chưa có mã)'}   ●   {status_label(st)}   "
+                f"{r.get('room_code') or '(chưa có mã)'}   ●   {loai}   ●   {status_label(st)}   "
                 f"| {tu.format_money(r.get('price'))}₫")
             item.setData(QColor(status_bg(st)), 5)  # UserRole-ish custom
             item.setData(st, 6)

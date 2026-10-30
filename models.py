@@ -241,22 +241,21 @@ ROOM_COLUMNS: List[Dict] = [
 
 # Cột bảng phòng hiển thị trên giao diện (order + tiêu đề)
 ROOM_TABLE_COLUMNS: List[Tuple[str, str, int]] = [
-    ("room_code",   "Mã phòng",   110),
-    ("status",      "Trạng thái",  140),
-    ("address",     "Địa chỉ tòa nhà", 260),
-    ("unit_code",   "Số căn",      90),
-    ("floor",       "Tầng",        60),
-    ("room_type",   "Dạng phòng",  110),
-    ("price",       "Giá thuê",    110),
-    ("deposit",     "Tiền cọc",    105),
-    ("area",        "Diện tích",    85),
-    ("surveyed",    "Khảo sát",     90),
-    ("ev_support",  "Xe điện",      80),
-    ("pet_policy",  "Thú cưng",     100),
-    ("foreign_guest","Khách NGO",    85),
-    ("capacity",    "Người/Xe",     95),
-    ("owner_phone", "SĐT chủ nhà", 165),
-    ("updated_at",  "Cập nhật",    145),
+    ("room_code",   "Mã phòng",   105),
+    ("status",      "Trạng thái",  125),
+    ("address",     "Địa chỉ tòa nhà", 250),
+    ("unit_code",   "Số căn",      85),
+    ("floor",       "Tầng",        55),
+    ("room_type",   "Dạng phòng",  105),
+    ("price",       "Giá thuê",    105),
+    ("deposit",     "Tiền cọc",    100),
+    ("area",        "Diện tích",    80),
+    ("surveyed",    "Khảo sát",     85),
+    ("ev_support",  "Xe điện",      75),
+    ("foreign_guest","Khách NGO",    75),
+    ("capacity",    "Người/Xe",     90),
+    ("owner_phone", "SĐT chủ nhà", 155),
+    ("updated_at",  "Cập nhật",    140),
 ]
 
 BUILDING_COLUMNS: List[Dict] = [

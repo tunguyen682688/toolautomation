@@ -34,12 +34,23 @@ class RoomDelegate(QStyledItemDelegate):
         model = index.model()
         if col_key == "status":
             st = model.data(index, Qt.UserRole) or ""
-            opt.backgroundBrush = QColor(status_bg(st))
+            # trạng thái hiển thị mờ nhạt, chữ đậm, căn giữa
+            opt.displayAlignment = Qt.AlignCenter | Qt.AlignVCenter
             opt.font = QFont(opt.font)
             opt.font.setBold(True)
+            opt.font.setPointSize(max(9, opt.font.pointSize() - 1))
         elif col_key in ("price", "deposit"):
             opt.displayAlignment = Qt.AlignRight | Qt.AlignVCenter
+        elif col_key in ("foreign_guest", "ev_support", "surveyed"):
+            opt.displayAlignment = Qt.AlignCenter | Qt.AlignVCenter
+        elif col_key == "area":
+            opt.displayAlignment = Qt.AlignCenter | Qt.AlignVCenter
         super().paint(painter, opt, index)
+
+    def sizeHint(self, option, index):
+        s = super().sizeHint(option, index)
+        s.setHeight(max(s.height(), 44))
+        return s
 
 
 # ------------------------------------------------------------------ model bảng
@@ -205,11 +216,11 @@ class RoomPage(QWidget):
         head.addWidget(self.btn_new)
         lay.addLayout(head)
 
-        # ---- bộ lọc ----
+        # ---- bộ lọc (chip hiện đại) ----
         bar = QFrame()
         bar.setObjectName("Toolbar")
         bl = QHBoxLayout(bar)
-        bl.setContentsMargins(12, 8, 12, 8)
+        bl.setContentsMargins(14, 10, 14, 10)
         bl.setSpacing(8)
 
         self.cmb_status = QComboBox()
@@ -228,7 +239,7 @@ class RoomPage(QWidget):
 
         self.cmb_building = QComboBox()
         self.cmb_building.addItem("Tất cả tòa nhà", None)
-        self.cmb_building.setMinimumWidth(200)
+        self.cmb_building.setMinimumWidth(190)
         self.cmb_building.currentIndexChanged.connect(self._apply_filter)
         bl.addWidget(self.cmb_building)
 
@@ -248,6 +259,7 @@ class RoomPage(QWidget):
         self.chk_deleted.toggled.connect(self._apply_filter)
         bl.addWidget(self.chk_deleted)
 
+        bl.addSpacing(12)
         lbl = QLabel("Giá từ")
         lbl.setObjectName("Muted")
         bl.addWidget(lbl)
@@ -267,9 +279,9 @@ class RoomPage(QWidget):
         self.spin_max.valueChanged.connect(self._apply_filter)
         bl.addWidget(self.spin_max)
 
-        self.btn_reset = QPushButton("🏠 Xem tất cả / Đặt lại")
+        self.btn_reset = QPushButton("🏠 Xem tất cả")
         self.btn_reset.setObjectName("Ghost")
-        self.btn_reset.setToolTip("Bỏ toàn bộ bộ lọc, xem toàn bộ danh sách phòng")
+        self.btn_reset.setToolTip("Bỏ toàn bộ bộ lọc")
         self.btn_reset.clicked.connect(self.reset_filters)
         bl.addWidget(self.btn_reset)
         bl.addStretch(1)
@@ -281,6 +293,7 @@ class RoomPage(QWidget):
         # ---- bảng + panel chi tiết ----
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
+        split.setHandleWidth(1)
 
         self.model = RoomTableModel(self.mgr)
         self.table = QTableView()
@@ -292,7 +305,7 @@ class RoomPage(QWidget):
         self.table.setSortingEnabled(False)
         self.table.setWordWrap(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.verticalHeader().setDefaultSectionSize(44)
         self.table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
         hdr = self.table.horizontalHeader()
         hdr.setStretchLastSection(False)
@@ -305,25 +318,38 @@ class RoomPage(QWidget):
         self.table.doubleClicked.connect(lambda idx: self._open_detail(self.model.room_id_at(idx.row())))
         split.addWidget(self.table)
 
-        # panel chi tiết
+        # panel chi tiết (phải)
         detail = QFrame()
-        detail.setObjectName("Card")
-        detail.setMinimumWidth(320)
-        detail.setMaximumWidth(420)
+        detail.setObjectName("DetailPanel")
+        detail.setMinimumWidth(340)
+        detail.setMaximumWidth(460)
         dl = QVBoxLayout(detail)
-        dl.setContentsMargins(16, 14, 16, 14)
-        dl.setSpacing(8)
+        dl.setContentsMargins(0, 0, 0, 0)
+        dl.setSpacing(0)
+
+        # tiêu đề panel
+        head = QFrame()
+        head.setObjectName("Card")
+        head.setStyleSheet("QFrame#Card { background: transparent; border: none; border-radius: 0; }")
+        hl = QVBoxLayout(head)
+        hl.setContentsMargins(20, 18, 20, 16)
+        hl.setSpacing(4)
         dt = QLabel("Chi tiết phòng")
         dt.setObjectName("SectionTitle")
-        dl.addWidget(dt)
+        hl.addWidget(dt)
+        dl.addWidget(head)
+
         self.detail_body = QLabel("Chọn một dòng trong bảng để xem chi tiết.")
         self.detail_body.setTextFormat(Qt.RichText)
         self.detail_body.setWordWrap(True)
-        self.detail_body.setStyleSheet("background:transparent; line-height: 150%;")
+        self.detail_body.setStyleSheet(
+            "background:transparent; line-height: 160%; padding: 0 20px;")
         dl.addWidget(self.detail_body, 1)
 
+        # vùng nút hành động (bo tròn, hiện đại)
         self.detail_actions = QVBoxLayout()
-        self.detail_actions.setSpacing(6)
+        self.detail_actions.setContentsMargins(16, 10, 16, 18)
+        self.detail_actions.setSpacing(8)
         dl.addLayout(self.detail_actions)
         split.addWidget(detail)
         split.setStretchFactor(0, 1)
@@ -460,27 +486,32 @@ class RoomPage(QWidget):
             self.detail_body.setText("Không tìm thấy phòng (có thể đã xóa).")
             return
         st = r.get("status", "")
+        fg = r.get("foreign_guest", 0)
         html = f"""
-        <div style='font-size:16px; font-weight:800;'>{r.get('room_code') or '(chưa có mã)'}</div>
-        <div style='color:{status_color(st)}; font-weight:700;'>● {status_label(st)}</div>
-        <hr style='border:none; border-top:1px solid #E4E8F0;'>
-        <b>Địa chỉ:</b> {r.get('address') or '—'}<br>
-        <b>Số căn / Tầng:</b> {r.get('unit_code') or '—'} / {r.get('floor') or '—'}<br>
-        <b>Loại phòng:</b> {r.get('room_type') or '—'}<br>
-        <b>Giá thuê:</b> {tu.format_money(r.get('price'))} ₫<br>
-        <b>Tiền cọc:</b> {tu.format_money(r.get('deposit'))} ₫<br>
-        <b>Diện tích:</b> {r.get('area') or '—'} m2<br>
-        <b>Sức chứa:</b> {r.get('capacity') or '—'}<br>
-        <b>Khảo sát:</b> {'✅ Đã khảo sát' if r.get('surveyed') else 'Chưa khảo sát'}<br>
-        <b>Xe điện:</b> {'⚡ Có sạc' if r.get('ev_support') else 'Không'}<br>
-        <b>Thú cưng:</b> {r.get('pet_policy') or '—'}<br>
-        <b>SĐT chủ nhà:</b> {r.get('owner_phone') or '—'}<br>
-        <b>Zalo:</b> {r.get('zalo_group') or '—'}<br>
-        <b>Drive:</b> {r.get('drive_link') or '—'}<br>
-        <b>Ghi chú:</b> {r.get('notes') or '—'}<br>
-        <hr style='border:none; border-top:1px solid #E4E8F0;'>
-        <span style='color:#64748B; font-size:11px;'>
-          ID: {r.get('id')}<br>Cập nhật: {r.get('updated_at')} bởi {r.get('updated_by')}<br>
+        <div style='font-size:18px; font-weight:800;'>{r.get('room_code') or '(chưa có mã)'}</div>
+        <div style='color:{status_color(st)}; font-weight:700; margin-top:2px;'>● {status_label(st)}</div>
+        {'<div style="color:#15803D; font-weight:700; font-size:12px; margin-top:2px;">🌏 Nhận khách nước ngoài</div>' if fg else ''}
+        <hr style='border:none; border-top:1px solid #E5E7EB; margin:10px 0;'>
+        <div style='font-size:13px; line-height:1.7;'>
+        <span style='color:#6B7280; font-weight:700;'>Địa chỉ:</span> {r.get('address') or '—'}<br>
+        <span style='color:#6B7280; font-weight:700;'>Số căn / Tầng:</span> {r.get('unit_code') or '—'} / {r.get('floor') or '—'}<br>
+        <span style='color:#6B7280; font-weight:700;'>Loại phòng:</span> {r.get('room_type') or '—'}<br>
+        <span style='color:#6B7280; font-weight:700;'>Giá thuê:</span> {tu.format_money(r.get('price'))} ₫<br>
+        <span style='color:#6B7280; font-weight:700;'>Tiền cọc:</span> {tu.format_money(r.get('deposit'))} ₫<br>
+        <span style='color:#6B7280; font-weight:700;'>Diện tích:</span> {r.get('area') or '—'} m2<br>
+        <span style='color:#6B7280; font-weight:700;'>Sức chứa:</span> {r.get('capacity') or '—'}<br>
+        <span style='color:#6B7280; font-weight:700;'>Khảo sát:</span> {'✅ Đã khảo sát' if r.get('surveyed') else 'Chưa khảo sát'}<br>
+        <span style='color:#6B7280; font-weight:700;'>Xe điện:</span> {'⚡ Có sạc' if r.get('ev_support') else 'Không'}<br>
+        <span style='color:#6B7280; font-weight:700;'>Thú cưng:</span> {r.get('pet_policy') or '—'}<br>
+        <span style='color:#6B7280; font-weight:700;'>SĐT chủ nhà:</span> {r.get('owner_phone') or '—'}<br>
+        <span style='color:#6B7280; font-weight:700;'>Zalo:</span> {r.get('zalo_group') or '—'}<br>
+        <span style='color:#6B7280; font-weight:700;'>Drive:</span> {r.get('drive_link') or '—'}<br>
+        <span style='color:#6B7280; font-weight:700;'>Ghi chú:</span> {r.get('notes') or '—'}<br>
+        </div>
+        <hr style='border:none; border-top:1px solid #E5E7EB; margin:12px 0;'>
+        <span style='color:#9CA3AF; font-size:11px; font-weight:600;'>
+          ID: {r.get('id')}<br>
+          Cập nhật: {r.get('updated_at')} bởi {r.get('updated_by')}<br>
           Phiên bản: v{r.get('version')} · Đồng bộ: {r.get('sync_state')}
         </span>"""
         if r.get("needs_verify"):
@@ -488,7 +519,7 @@ class RoomPage(QWidget):
                      "cần xác minh khoá nhận diện</span>")
         self.detail_body.setText(html)
 
-        # nút hành động
+        # nút hành động (đầy chiều rộng, bo tròn, hiện đại)
         for label, slot in (
             ("✏️ Sửa chi tiết", lambda: self._edit_room(rid)),
             ("📞 Gọi chủ nhà", lambda: self._call(rid)),
@@ -498,8 +529,11 @@ class RoomPage(QWidget):
             ("🗑 Xóa phòng", lambda: self._delete(rid)),
         ):
             b = QPushButton(label)
+            b.setMinimumHeight(40)
             if label.startswith("🗑"):
                 b.setObjectName("Danger")
+            else:
+                b.setObjectName("Ghost")
             b.clicked.connect(slot)
             self.detail_actions.addWidget(b)
 

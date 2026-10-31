@@ -393,6 +393,32 @@ QProgressBar::chunk {{ background: {accent}; border-radius: 6px; }}
 QSplitter::handle {{ background: {border}; }}
 QSplitter::handle:hover {{ background: {accent}; }}
 
+/* ============================ THẺ TÒA NHÀ + NÚT TRÒN + PANEL PHÒNG ============================ */
+QFrame#BuildingCard {{
+    background: {card}; border: 1px solid {border}; border-radius: 14px;
+}}
+QFrame#BuildingCard:hover {{
+    border-color: {accent}; background: {accent_soft};
+}}
+QToolButton#IconButton {{
+    background: transparent; border: none; border-radius: 8px;
+    padding: 4px 7px; font-size: 13.5px; color: {text2};
+}}
+QToolButton#IconButton:hover {{ background: {bg_alt}; color: {text}; }}
+QToolButton#IconButton:disabled {{ color: {text3}; }}
+QPushButton#SmallPrimary {{
+    background: {accent_soft}; color: {accent_soft_text}; border: none;
+    border-radius: 8px; padding: 7px 14px; font-weight: 700; font-size: 12.5px;
+}}
+QPushButton#SmallPrimary:hover {{ background: {sidebar_active}; }}
+QListView#RoomList {{
+    background: transparent; border: 1px solid {border}; border-radius: 10px;
+    padding: 4px; outline: none; font-size: 12.5px;
+}}
+QListView#RoomList::item {{ padding: 8px 10px; border-radius: 7px; margin: 1px; }}
+QListView#RoomList::item:hover {{ background: {bg_alt}; }}
+QListView#RoomList::item:selected {{ background: {sel}; color: {sel_text}; }}
+
 /* ============================ POPUP TÌM KIẾM ============================ */
 QListView#SearchPopup {{
     background: {card}; border: 1px solid {border}; border-radius: 14px;

@@ -264,6 +264,11 @@ class RoomPage(QWidget):
         self.cmb_district.currentIndexChanged.connect(self._district_changed)
         row1.addWidget(self.cmb_district)
 
+        self.cmb_ward = QComboBox()
+        self.cmb_ward.addItem("Tất cả phường", None)
+        self.cmb_ward.currentIndexChanged.connect(self._ward_changed)
+        row1.addWidget(self.cmb_ward)
+
         self.cmb_building = QComboBox()
         self.cmb_building.addItem("Tất cả tòa nhà", None)
         self.cmb_building.setMinimumWidth(190)
@@ -399,13 +404,15 @@ class RoomPage(QWidget):
         self._load_buildings()
 
     def _load_buildings(self, district: Optional[str] = None):
-        """Đổ KHU VỰC + danh sách tòa nhà vào combobox lọc.
+        """Đổ KHU VỰC + PHƯỜNG + danh sách tòa nhà vào combobox lọc.
 
         - Combobox khu vực: các quận đang có tòa (gộp 'Q. Bình Thạnh cũ' = 'Q. Bình Thạnh').
-        - Combobox tòa: nếu truyền district -> chỉ hiện tòa thuộc khu vực đó.
+        - Combobox phường: các phường thuộc khu vực đang chọn (phụ thuộc district).
+        - Combobox tòa: chỉ hiện tòa thuộc khu vực + phường đang chọn.
         Giữ nguyên lựa chọn hiện tại nếu vẫn còn hợp lệ.
         """
         cur_district = district if district is not None else self.cmb_district.currentData()
+        cur_ward = self.cmb_ward.currentData()
         cur_building = self.cmb_building.currentData()
 
         try:
@@ -439,13 +446,41 @@ class RoomPage(QWidget):
         self.cmb_district.setCurrentIndex(max(0, idx))
         self.cmb_district.blockSignals(False)
 
-        # ---- combobox tòa (lọc theo khu vực đang chọn)
+        # ---- combobox phường (thuộc khu vực đang chọn)
         sel_district = self.cmb_district.currentData()
+        ward_display: Dict[str, str] = {}
+        ward_count: Dict[str, int] = {}
+        for b in buildings:
+            if sel_district and tu.canon_district(b.get("district")) != tu.canon_district(sel_district):
+                continue
+            raw_w = str(b.get("ward") or "").strip()
+            if not raw_w:
+                continue
+            kw = tu.canon_ward(raw_w)
+            if not kw:
+                continue
+            ward_count[kw] = ward_count.get(kw, 0) + 1
+            if kw not in ward_display or len(raw_w) < len(ward_display[kw]):
+                ward_display[kw] = raw_w
+        self.cmb_ward.blockSignals(True)
+        self.cmb_ward.clear()
+        self.cmb_ward.addItem("Tất cả phường", None)
+        for kw in sorted(ward_display, key=lambda x: -ward_count[x]):
+            self.cmb_ward.addItem(f"🏷️ {ward_display[kw]}  ({ward_count[kw]} tòa)", ward_display[kw])
+        idx = self.cmb_ward.findData(cur_ward)
+        self.cmb_ward.setCurrentIndex(max(0, idx))
+        self.cmb_ward.blockSignals(False)
+
+        # ---- combobox tòa (lọc theo khu vực + phường đang chọn)
+        sel_district = self.cmb_district.currentData()
+        sel_ward = self.cmb_ward.currentData()
         self.cmb_building.blockSignals(True)
         self.cmb_building.clear()
         self.cmb_building.addItem("Tất cả tòa nhà", None)
         for b in buildings:
             if sel_district and tu.canon_district(b.get("district")) != tu.canon_district(sel_district):
+                continue
+            if sel_ward and tu.canon_ward(b.get("ward")) != tu.canon_ward(sel_ward):
                 continue
             self.cmb_building.addItem(f"{b.get('code','')} — {b.get('display','')}", b["id"])
         idx = self.cmb_building.findData(cur_building)
@@ -453,7 +488,12 @@ class RoomPage(QWidget):
         self.cmb_building.blockSignals(False)
 
     def _district_changed(self, *_):
-        """Đổi khu vực -> làm mới danh sách tòa theo khu vực + lọc phòng."""
+        """Đổi khu vực -> làm mới phường + tòa theo khu vực + lọc phòng."""
+        self._load_buildings(district=self.cmb_district.currentData())
+        self._apply_filter()
+
+    def _ward_changed(self, *_):
+        """Đổi phường -> làm mới danh sách tòa theo phường + lọc phòng."""
         self._load_buildings(district=self.cmb_district.currentData())
         self._apply_filter()
 
@@ -467,7 +507,8 @@ class RoomPage(QWidget):
             multi = list(self._filter.statuses) if len(self._filter.statuses or ()) > 1 else None
             # đồng bộ điều khiển (tạm chặn signal để không clear bộ lọc nhiều trạng thái)
             st = (self._filter.statuses or [None])[0] if self._filter.statuses else None
-            widgets = [self.cmb_status, self.cmb_type, self.cmb_district, self.cmb_building,
+            widgets = [self.cmb_status, self.cmb_type, self.cmb_district, self.cmb_ward,
+                       self.cmb_building,
                        self.chk_ev, self.chk_foreign,
                        self.chk_pet,
                        self.chk_unsurvey, self.chk_deleted, self.spin_min, self.spin_max]
@@ -479,6 +520,8 @@ class RoomPage(QWidget):
             self.cmb_type.setCurrentIndex(max(0, i))
             i = self.cmb_district.findData(self._filter.district)
             self.cmb_district.setCurrentIndex(max(0, i))
+            i = self.cmb_ward.findData(self._filter.ward)
+            self.cmb_ward.setCurrentIndex(max(0, i))
             i = self.cmb_building.findData(self._filter.building_id)
             self.cmb_building.setCurrentIndex(max(0, i))
             self.chk_ev.setChecked(bool(self._filter.ev_support))
@@ -510,9 +553,11 @@ class RoomPage(QWidget):
         types = [self.cmb_type.currentData()] if self.cmb_type.currentData() else None
         building_id = self.cmb_building.currentData()
         district = self.cmb_district.currentData()
+        ward = self.cmb_ward.currentData()
         return RoomFilter(
             building_id=building_id,
             district=district,
+            ward=ward,
             statuses=statuses,
             room_types=types,
             price_min=self.spin_min.value() or None,
@@ -542,6 +587,7 @@ class RoomPage(QWidget):
         self.cmb_status.setCurrentIndex(0)
         self.cmb_type.setCurrentIndex(0)
         self.cmb_district.setCurrentIndex(0)
+        self.cmb_ward.setCurrentIndex(0)
         self.cmb_building.setCurrentIndex(0)
         self.chk_ev.setChecked(False)
         self.chk_foreign.setChecked(False)

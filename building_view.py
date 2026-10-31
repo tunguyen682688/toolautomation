@@ -411,9 +411,14 @@ class BuildingPage(QWidget):
         from PySide6.QtWidgets import QLineEdit as _QLE
         self.cmb_zone = QComboBox()
         self.cmb_zone.addItem("Tất cả khu vực", None)
-        self.cmb_zone.currentIndexChanged.connect(self._apply_filter)
+        self.cmb_zone.currentIndexChanged.connect(self._zone_changed)
         self.cmb_zone.setToolTip("Phân cụm tòa nhà theo khu vực (quận)")
         fl.addWidget(self.cmb_zone)
+        self.cmb_ward = QComboBox()
+        self.cmb_ward.addItem("Tất cả phường", None)
+        self.cmb_ward.currentIndexChanged.connect(self._apply_filter)
+        self.cmb_ward.setToolTip("Lọc theo phường (thuộc khu vực đang chọn)")
+        fl.addWidget(self.cmb_ward)
         self.ed_search = _QLE()
         self.ed_search.setPlaceholderText("🔎 Lọc theo địa chỉ / chủ nhà / SĐT...")
         self.ed_search.setMinimumWidth(300)
@@ -465,10 +470,14 @@ class BuildingPage(QWidget):
         self._reload_zones(base)
 
         zone = self.cmb_zone.currentData()
+        ward_sel = self.cmb_ward.currentData()
         buildings = base
         if zone:
             buildings = [b for b in base
                          if tu.canon_district(b.get("district")) == tu.canon_district(zone)]
+        if ward_sel:
+            buildings = [b for b in buildings
+                         if tu.canon_ward(b.get("ward")) == tu.canon_ward(ward_sel)]
 
         # dọn container cũ
         while self.container_lay.count():
@@ -484,7 +493,7 @@ class BuildingPage(QWidget):
             empty.setObjectName("Muted")
             self.container_lay.addWidget(empty)
         else:
-            # ---- PHÂN CỤM THEO KHU VỰC (quận): 'Q. Bình Thạnh cũ' = 'Q. Bình Thạnh' ----
+            # ---- PHÂN CỤM CẤP 1: KHU VỰC (quận): 'Q. Bình Thạnh cũ' = 'Q. Bình Thạnh' ----
             groups: Dict[str, Dict] = {}
             order: List[str] = []
             for b in buildings:
@@ -512,25 +521,60 @@ class BuildingPage(QWidget):
                     "border-left:4px solid #2563EB; border-radius:8px; padding:8px 12px;")
                 self.container_lay.addWidget(header)
 
-                wrap = QWidget()
-                wrap.setStyleSheet("background:transparent;")
-                flow = FlowLayout(wrap, 14, 14)
-                flow.setContentsMargins(0, 0, 6, 0)
-                wrap.setLayout(flow)
+                # ---- PHÂN CỤM CẤP 2: PHƯỜNG (P.13, P.5, ...) - tự tạo từ dữ liệu ----
+                ward_groups: Dict[str, Dict] = {}
+                ward_order: List[str] = []
                 for b in g["items"]:
-                    card = BuildingCard(b)
-                    card.open_rooms.connect(self.building_selected.emit)
-                    card.edit_requested.connect(self._edit)
-                    flow.addWidget(card)
-                    self._cards.append(card)
-                self._cluster_flows.append(flow)
-                self.container_lay.addWidget(wrap)
+                    raw_w = str(b.get("ward") or "").strip()
+                    kw = tu.canon_ward(raw_w) or "(khác)"
+                    wg = ward_groups.get(kw)
+                    if not wg:
+                        wg = {"title": raw_w or "Chưa phân phường", "items": []}
+                        ward_groups[kw] = wg
+                        ward_order.append(kw)
+                    wg["items"].append(b)
+                    if raw_w and len(raw_w) < len(wg["title"]):
+                        wg["title"] = raw_w
+
+                # chỉ hiện sub-header phường khi khu vực có >= 2 phường (tránh trùng lặp)
+                ward_order.sort(key=lambda x: -len(ward_groups[x]["items"]))
+                show_wards = len(ward_groups) > 1
+
+                for wk in ward_order:
+                    wg = ward_groups[wk]
+                    if show_wards:
+                        n_wb = len(wg["items"])
+                        n_wr = sum(int(b.get("rooms_total", 0) or 0) for b in wg["items"])
+                        n_wv = sum(int(b.get("rooms_vacant", 0) or 0) for b in wg["items"])
+                        sub = QLabel(
+                            f"        🏷️ {wg['title']}   ·   {n_wb} tòa   ·   "
+                            f"{n_wr} phòng   ·   {n_wv} trống")
+                        sub.setStyleSheet(
+                            "background:#F8FAFC; color:#334155; font-weight:700; font-size:12.5px;"
+                            "border-left:3px solid #93C5FD; border-radius:6px; padding:6px 10px;"
+                            "margin-left:16px;")
+                        self.container_lay.addWidget(sub)
+
+                    wrap = QWidget()
+                    wrap.setStyleSheet("background:transparent;")
+                    flow = FlowLayout(wrap, 14, 14)
+                    flow.setContentsMargins(0, 0, 6, 0)
+                    wrap.setLayout(flow)
+                    for b in wg["items"]:
+                        card = BuildingCard(b)
+                        card.open_rooms.connect(self.building_selected.emit)
+                        card.edit_requested.connect(self._edit)
+                        flow.addWidget(card)
+                        self._cards.append(card)
+                    self._cluster_flows.append(flow)
+                    self.container_lay.addWidget(wrap)
 
         self.lbl_count.setText(f"{len(buildings)} tòa nhà")
 
     def _reload_zones(self, base_buildings: List[Dict[str, Any]]):
-        """Cập nhật combobox khu vực từ danh sách tòa (không phụ thuộc bộ lọc khu vực)."""
-        cur = self.cmb_zone.currentData()
+        """Cập nhật combobox khu vực + phường (phường phụ thuộc khu vực đang chọn)."""
+        cur_zone = self.cmb_zone.currentData()
+        cur_ward = self.cmb_ward.currentData()
         zones: Dict[str, str] = {}
         counts: Dict[str, int] = {}
         for b in base_buildings:
@@ -548,9 +592,39 @@ class BuildingPage(QWidget):
         self.cmb_zone.addItem("Tất cả khu vực", None)
         for k in sorted(zones, key=lambda x: -counts[x]):
             self.cmb_zone.addItem(f"📍 {zones[k]}  ({counts[k]} tòa)", zones[k])
-        idx = self.cmb_zone.findData(cur)
+        idx = self.cmb_zone.findData(cur_zone)
         self.cmb_zone.setCurrentIndex(max(0, idx))
         self.cmb_zone.blockSignals(False)
+
+        # ---- phường (thuộc khu vực đang chọn)
+        sel_zone = self.cmb_zone.currentData()
+        wards: Dict[str, str] = {}
+        wcounts: Dict[str, int] = {}
+        for b in base_buildings:
+            if sel_zone and tu.canon_district(b.get("district")) != tu.canon_district(sel_zone):
+                continue
+            raw_w = str(b.get("ward") or "").strip()
+            if not raw_w:
+                continue
+            kw = tu.canon_ward(raw_w)
+            if not kw:
+                continue
+            wcounts[kw] = wcounts.get(kw, 0) + 1
+            if kw not in wards or len(raw_w) < len(wards[kw]):
+                wards[kw] = raw_w
+        self.cmb_ward.blockSignals(True)
+        self.cmb_ward.clear()
+        self.cmb_ward.addItem("Tất cả phường", None)
+        for kw in sorted(wards, key=lambda x: -wcounts[x]):
+            self.cmb_ward.addItem(f"🏷️ {wards[kw]}  ({wcounts[kw]} tòa)", wards[kw])
+        idx = self.cmb_ward.findData(cur_ward)
+        self.cmb_ward.setCurrentIndex(max(0, idx))
+        self.cmb_ward.blockSignals(False)
+
+    def _zone_changed(self, *_):
+        """Đổi khu vực -> làm mới phường phụ thuộc + refresh cụm."""
+        self._reload_zones(self.mgr.buildings(text=self.ed_search.text()))
+        self.refresh()
 
     def _apply_filter(self, *_):
         self.refresh()

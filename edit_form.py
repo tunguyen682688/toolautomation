@@ -117,6 +117,12 @@ class RoomEditForm(QDialog):
         self._draft_timer.setInterval(2000)
         self._draft_timer.timeout.connect(self._save_draft)
 
+        # --- GỢI Ý TÒA ĐÃ CÓ: debounce 300ms khi gõ địa chỉ ---
+        self._suggest_timer = QTimer(self)
+        self._suggest_timer.setSingleShot(True)
+        self._suggest_timer.setInterval(300)
+        self._suggest_timer.timeout.connect(self._update_suggestions)
+
         self._seed_values()
         self._connect_autofill()
         if self.is_new:
@@ -146,6 +152,15 @@ class RoomEditForm(QDialog):
         hint.setObjectName("Muted")
         hint.setStyleSheet("background:transparent; font-size:11.5px;")
         hl.addWidget(hint)
+
+        self.btn_paste = QPushButton("📋 Dán tin đăng")
+        self.btn_paste.setObjectName("Chip")
+        self.btn_paste.setCursor(Qt.PointingHandCursor)
+        self.btn_paste.setToolTip(
+            "Dán nguyên văn tin cho thuê (Zalo/Facebook) - hệ thống tự tách "
+            "địa chỉ, giá, dạng phòng, sức chứa, diện tích, tầng, pet, xe điện, SĐT")
+        self.btn_paste.clicked.connect(self._open_paste_dialog)
+        hl.addWidget(self.btn_paste)
 
         self.layout().addWidget(bar)
 
@@ -220,7 +235,9 @@ class RoomEditForm(QDialog):
             form.setColumnStretch(form.columnCount() - 1, 1)  # stretch cột cuối
             cl.addWidget(box)
 
-        # ---------- nhóm 1: Địa chỉ (1 hàng 4 cột, giống cột Excel) ----------
+        # ---------- nhóm 1: Địa chỉ (1 hàng 4 cột, giống cột Excel) + GỢI Ý TÒA ĐÃ CÓ ----------
+        box1, f1 = self._group(1)
+
         def _g1(f):
             self.ed["house_number"] = self._line("Ví dụ: 86, 79/16, 371A")
             self.ed["street"] = self._line("Ví dụ: Nguyễn Thượng Hiền")
@@ -235,7 +252,17 @@ class RoomEditForm(QDialog):
             f.addWidget(QLabel("Quận / Khu vực:"), 0, 6)
             f.addWidget(self.ed["district"], 0, 7)
             f.setColumnStretch(8, 1)
-        add_group(1, _g1)
+        _g1(f1)
+
+        # hàng gợi ý: bấm 1 phát điền đủ 4 ô địa chỉ + tự điền chủ nhà/SĐT
+        self.suggest_row_w = QWidget()
+        self.suggest_row_w.setStyleSheet("background:transparent;")
+        self.suggest_lay = QHBoxLayout(self.suggest_row_w)
+        self.suggest_lay.setContentsMargins(0, 0, 0, 0)
+        self.suggest_lay.setSpacing(6)
+        box1.layout().addWidget(self.suggest_row_w)
+        self.suggest_row_w.hide()
+        cl.addWidget(box1)
 
         # ---------- nhóm 2: Nhận diện ----------
         def _g2(f):
@@ -402,6 +429,12 @@ class RoomEditForm(QDialog):
             if isinstance(w, QLineEdit):
                 w.textChanged.connect(self._schedule_check)
 
+        # gợi ý tòa đã có khi gõ số nhà / tên đường
+        for key in ("house_number", "street"):
+            w = self.ed[key]
+            if isinstance(w, QLineEdit):
+                w.textChanged.connect(self._schedule_suggest)
+
         # lưu nháp tự động khi thay đổi bất kỳ trường nào (debounce 2s)
         for w in self.ed.values():
             if isinstance(w, (QLineEdit, QComboBox, QCheckBox, QPlainTextEdit)):
@@ -446,6 +479,73 @@ class RoomEditForm(QDialog):
 
     def _schedule_check(self, *_):
         self._debounce.start()
+
+    # ------------------------------------------------------------------ gợi ý tòa đã có (nhập nhanh)
+    def _schedule_suggest(self, *_):
+        if hasattr(self, "_suggest_timer"):
+            self._suggest_timer.start()
+
+    def _update_suggestions(self):
+        """Gợi ý tòa đã có theo số nhà + tên đường đang gõ (chỉ khi THÊM MỚI)."""
+        if not hasattr(self, "suggest_row_w"):
+            return
+        if not self.is_new:
+            self.suggest_row_w.hide()
+            return
+        q = tu.norm(f"{self.ed['house_number'].text()} {self.ed['street'].text()}")
+        if len(q) < 2:
+            self.suggest_row_w.hide()
+            return
+        matches = []
+        try:
+            for b in self.mgr.buildings():
+                if q in tu.norm(b.get("display", "")):
+                    matches.append(b)
+                if len(matches) >= 5:
+                    break
+        except Exception:  # noqa: BLE001
+            matches = []
+        if not matches:
+            self.suggest_row_w.hide()
+            return
+        # dựng lại hàng chip
+        while self.suggest_lay.count():
+            it = self.suggest_lay.takeAt(0)
+            w = it.widget()
+            if w:
+                w.deleteLater()
+        lbl = QLabel("🏢 Tòa đã có - bấm để điền nhanh:")
+        lbl.setObjectName("Muted")
+        lbl.setStyleSheet("background:transparent; font-size:12px;")
+        self.suggest_lay.addWidget(lbl)
+        for b in matches:
+            total = b.get("rooms_total", 0)
+            txt = f"{b.get('code','')} · {b.get('display','')}" + (f" · {total} phòng" if total else "")
+            chip = QPushButton(txt)
+            chip.setObjectName("Chip")
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.setToolTip("Bấm để điền đủ địa chỉ + tự điền chủ nhà/SĐT/chính sách")
+            chip.clicked.connect(lambda checked=False, bb=dict(b): self._fill_from_building(bb))
+            self.suggest_lay.addWidget(chip)
+        self.suggest_lay.addStretch(1)
+        self.suggest_row_w.show()
+
+    def _fill_from_building(self, b: Dict[str, Any]):
+        """Bấm gợi ý -> điền đủ 4 ô địa chỉ + tự điền chủ nhà/SĐT/chính sách."""
+        if not b:
+            return
+        self.ed["house_number"].setText(str(b.get("house_number") or ""))
+        self.ed["street"].setText(str(b.get("street") or ""))
+        self.ed["ward"].setText(str(b.get("ward") or ""))
+        self.ed["district"].setText(str(b.get("district") or ""))
+        self._maybe_autofill()
+        self._run_check()
+        self.suggest_row_w.hide()
+        self.banner_label.setText(
+            f"<span style='color:{C_OK};'>✓ Đã chọn tòa tồn tại "
+            f"<b>{b.get('display')}</b> - chỉ cần nhập thông tin phòng "
+            f"(mã / số căn / giá).</span>")
+        self.banner.show()
 
     def _run_check(self):
         payload = self.payload()
@@ -500,6 +600,47 @@ class RoomEditForm(QDialog):
         mw = self.parent()
         if mw and hasattr(mw, "_open_detail"):
             mw._open_detail(rid)
+
+    # ------------------------------------------------------------------ dán tin đăng (nhập nhanh từ text)
+    def _open_paste_dialog(self):
+        dlg = PasteListingDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        parsed = dlg.parsed
+        if not parsed:
+            return
+        self._apply_listing(parsed)
+
+    def _apply_listing(self, p: Dict[str, Any]):
+        """Điền các trường đã tách từ tin đăng vào form."""
+        text_fields = ("house_number", "street", "ward", "district", "room_type",
+                       "area", "floor", "capacity", "pet_policy", "owner_phone")
+        for k in text_fields:
+            v = str(p.get(k) or "").strip()
+            if v and k in self.ed:
+                w = self.ed[k]
+                if isinstance(w, QLineEdit):
+                    w.setText(v)
+                elif isinstance(w, QComboBox):
+                    w.setCurrentText(v)
+        for k in ("price", "deposit"):
+            v = int(p.get(k) or 0)
+            if v and isinstance(self.ed[k], QLineEdit):
+                self.ed[k].setText(str(v))
+        if p.get("ev_support") and isinstance(self.ed.get("ev_support"), QCheckBox):
+            self.ed["ev_support"].setChecked(True)
+        # ghi chú: lưu nguyên văn tin gốc để tham khảo (nếu ô ghi chú đang trống)
+        note_src = str(p.get("notes") or "").strip()
+        if note_src:
+            cur = self.ed["notes"].toPlainText().strip()
+            if not cur:
+                self.ed["notes"].setPlainText(f"[Tin gốc] {note_src}")
+        self._maybe_autofill()
+        self._run_check()
+        self.banner_label.setText(
+            f"<span style='color:{C_OK};'>📋 Đã tách tin đăng vào form - "
+            f"kiểm tra lại giá & địa chỉ trước khi Lưu.</span>")
+        self.banner.show()
 
     # ------------------------------------------------------------------ nháp tự động (draft)
     def _schedule_draft(self, *_):
@@ -700,6 +841,112 @@ class RoomEditForm(QDialog):
         else:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Trùng dữ liệu", res.messages("\n"))
+
+
+# ------------------------------------------------------------------ dialog dán tin đăng
+class PasteListingDialog(QDialog):
+    """Dán nguyên văn tin cho thuê (Zalo/FB) -> hệ thống tự tách các trường.
+
+    Xem trước kết quả phân tích ngay khi gõ/dán; bấm "Áp dụng vào form" để điền.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parsed: Dict[str, Any] = {}
+        self.setWindowTitle("📋 Dán tin đăng - nhập nhanh từ text")
+        self.setMinimumSize(640, 560)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 14, 16, 12)
+        lay.setSpacing(10)
+
+        tip = QLabel(
+            "Dán nguyên văn tin đăng vào ô bên dưới. Hệ thống tự tách:\n"
+            "địa chỉ (số nhà · đường · phường · quận) · giá · cọc · dạng phòng · "
+            "sức chứa · diện tích · tầng · pet · xe điện · SĐT")
+        tip.setObjectName("Muted")
+        tip.setWordWrap(True)
+        lay.addWidget(tip)
+
+        self.txt = QPlainTextEdit()
+        self.txt.setPlaceholderText(
+            "Ví dụ:\nCho thue can ho 86 Nguyễn Thượng Hiền P.13 Q.Bình Thạnh, "
+            "giá 7.5tr, studio, 2 người 2 xe, 45m2, tầng 3, sạc xe điện, "
+            "cho nuôi mèo, SDT 0868328147")
+        f = self.txt.font()
+        f.setPointSize(11)
+        self.txt.setFont(f)
+        lay.addWidget(self.txt, 2)
+
+        # xem trước kết quả phân tích
+        prev_box = QFrame()
+        prev_box.setObjectName("Card")
+        pv = QVBoxLayout(prev_box)
+        pv.setContentsMargins(14, 10, 14, 10)
+        pv.setSpacing(6)
+        pt = QLabel("Kết quả tách được:")
+        pt.setObjectName("SectionTitle")
+        pt.setStyleSheet("font-size:13px; background:transparent;")
+        pv.addWidget(pt)
+        self.prev_label = QLabel("Chưa có dữ liệu.")
+        self.prev_label.setTextFormat(Qt.RichText)
+        self.prev_label.setWordWrap(True)
+        self.prev_label.setStyleSheet("background:transparent; line-height:150%;")
+        pv.addWidget(self.prev_label, 1)
+        lay.addWidget(prev_box, 3)
+
+        bb = QDialogButtonBox()
+        self.btn_apply = bb.addButton("Áp dụng vào form", QDialogButtonBox.AcceptRole)
+        self.btn_apply.setObjectName("Primary")
+        self.btn_apply.setEnabled(False)
+        bb.addButton("Hủy", QDialogButtonBox.RejectRole)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+        # phân tích tự động khi dán/gõ (debounce 300ms)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(300)
+        self._timer.timeout.connect(self._preview)
+        self.txt.textChanged.connect(lambda: self._timer.start())
+
+    def _preview(self):
+        import text_utils as tu
+        text = self.txt.toPlainText().strip()
+        if not text:
+            self.parsed = {}
+            self.prev_label.setText("Chưa có dữ liệu.")
+            self.btn_apply.setEnabled(False)
+            return
+        p = tu.parse_listing_text(text)
+        self.parsed = p
+        acc = "#2563EB"
+        rows = [
+            ("Địa chỉ", " ".join(x for x in (p.get("house_number"), p.get("street")) if x)),
+            ("Phường / Quận", " · ".join(x for x in (p.get("ward"), p.get("district")) if x)),
+            ("Giá thuê", f"{tu.format_money(p.get('price'))} ₫" if p.get("price") else ""),
+            ("Tiền cọc", f"{tu.format_money(p.get('deposit'))} ₫" if p.get("deposit") else ""),
+            ("Dạng phòng", p.get("room_type")),
+            ("Sức chứa", p.get("capacity")),
+            ("Diện tích / Tầng", " / ".join(x for x in (p.get("area"), p.get("floor")) if x)),
+            ("Xe điện", "⚡ Có" if p.get("ev_support") else ""),
+            ("Thú cưng", p.get("pet_policy")),
+            ("SĐT", p.get("owner_phone")),
+        ]
+        html = "".join(
+            f"<tr><td style='color:#6B7280; font-weight:700; padding:1px 12px 1px 0;'>{k}</td>"
+            f"<td style='color:{acc}; font-weight:700;'>{v}</td></tr>"
+            for k, v in rows if v)
+        if html:
+            self.prev_label.setText(
+                f"<table width='100%'>{html}</table>")
+            self.btn_apply.setEnabled(True)
+        else:
+            self.prev_label.setText(
+                "<span style='color:#DC2626; font-weight:700;'>"
+                "Không tách được thông tin nào - kiểm tra lại tin đăng.</span>")
+            self.btn_apply.setEnabled(False)
 
 
 # ------------------------------------------------------------------ wrapper hộp thoại (tách import)

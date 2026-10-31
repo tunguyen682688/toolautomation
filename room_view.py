@@ -23,6 +23,7 @@ import text_utils as tu
 from inventory_manager import DuplicateError
 from models import ROOM_TABLE_COLUMNS, ROOM_TYPES, RoomFilter, RoomStatus
 from theme import status_bg, status_color, status_label
+from building_view import FlowLayout   # layout tự wrap - dùng cho toolbar responsive
 
 
 # ------------------------------------------------------------------ delegate hiển thị
@@ -226,6 +227,15 @@ class RoomPage(QWidget):
         self.btn_new.setObjectName("Primary")
         self.btn_new.clicked.connect(self._add_room)
         hl.addWidget(self.btn_new)
+
+        # nút ẩn/hiện panel chi tiết (responsive: nhường chỗ cho bảng khi màn hẹp)
+        self.btn_toggle_detail = QPushButton("⟨⟩ Chi tiết")
+        self.btn_toggle_detail.setObjectName("Ghost")
+        self.btn_toggle_detail.setToolTip("Ẩn/hiện panel chi tiết phòng")
+        self.btn_toggle_detail.setCheckable(True)
+        self.btn_toggle_detail.setChecked(True)
+        self.btn_toggle_detail.toggled.connect(self._toggle_detail)
+        hl.addWidget(self.btn_toggle_detail)
         lay.addWidget(head)
 
         # subtitle
@@ -242,9 +252,8 @@ class RoomPage(QWidget):
         bl.setContentsMargins(22, 8, 22, 8)
         bl.setSpacing(8)
 
-        # Hàng 1: bộ lọc chính
-        row1 = QHBoxLayout()
-        row1.setSpacing(10)
+        # Hàng 1: bộ lọc chính - FlowLayout TỰ WRAP khi cửa sổ hẹp (responsive)
+        row1 = FlowLayout(bar, 10, 6)
 
         self.cmb_status = QComboBox()
         self.cmb_status.addItem("Tất cả trạng thái", None)
@@ -291,7 +300,6 @@ class RoomPage(QWidget):
         self.chk_deleted = QCheckBox("Hiện đã xóa")
         self.chk_deleted.toggled.connect(self._apply_filter)
         row1.addWidget(self.chk_deleted)
-        row1.addStretch(1)
         bl.addLayout(row1)
 
         # Hàng 2: khoảng giá + nút reset + đếm
@@ -487,6 +495,8 @@ class RoomPage(QWidget):
         split.addWidget(detail)
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 0)
+        self._splitter = split          # dùng cho ẩn/hiện panel (responsive)
+        self._detail_panel = detail
         lay.addWidget(split, 1)
 
         self.table.selectionModel().currentRowChanged.connect(
@@ -882,6 +892,10 @@ class RoomPage(QWidget):
         self._open_detail(rid)
 
     # ------------------------------------------------------------------ hành động
+    def _toggle_detail(self, show: bool):
+        """Ẩn/hiện panel chi tiết (responsive: nhường chỗ cho bảng khi cửa sổ hẹp)."""
+        self._detail_panel.setVisible(show)
+
     def _current_room_id(self) -> str:
         idx = self.table.currentIndex()
         return self.model.room_id_at(idx.row()) if idx.isValid() else ""

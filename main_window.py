@@ -85,7 +85,16 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(
             f"Kho Phòng Căn Hộ - Quản lý kho căn hộ cho thuê  [{env_badge()}]")
+        self.setMinimumSize(1024, 640)          # dưới ngưỡng này UI không còn đủ chỗ
         self.resize(1440, 900)
+        # chặn kích thước khởi động vượt quá màn hình (màn nhỏ / DPI scale cao)
+        try:
+            from PySide6.QtGui import QGuiApplication
+            scr = QGuiApplication.primaryScreen().availableGeometry()
+            self.resize(min(self.width(), scr.width() - 40),
+                        min(self.height(), scr.height() - 40))
+        except Exception:  # noqa: BLE001
+            pass
         self.setStyleSheet(APP_QSS)
 
         self._build_ui()
@@ -208,7 +217,7 @@ class MainWindow(QMainWindow):
         self.search.setObjectName("SearchBox")
         self.search.setPlaceholderText(
             "Tìm nhanh: địa chỉ, mã phòng, số căn, loại phòng, SĐT, giá...  (Ctrl+F)")
-        self.search.setMinimumWidth(420)
+        self.search.setMinimumWidth(220)        # responsive: co lại khi cửa sổ hẹp
         tl.addWidget(self.search, 1)
 
         self.lbl_hint = QLabel("Không dấu / không phân biệt hoa thường")

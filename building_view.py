@@ -536,11 +536,12 @@ class BuildingPage(QWidget):
                     if raw_w and len(raw_w) < len(wg["title"]):
                         wg["title"] = raw_w
 
-                # chỉ hiện sub-header phường khi khu vực có >= 2 phường (tránh trùng lặp)
-                ward_order.sort(key=lambda x: -len(ward_groups[x]["items"]))
+                # thứ tự phường theo TÊN (A->Z) -> cụm ổn định, dễ tra cứu
+                ward_order.sort(key=lambda x: ward_groups[x]["title"].lower())
                 show_wards = len(ward_groups) > 1
 
-                for wk in ward_order:
+                def _ward_sub(wk: str):
+                    """Header phường + lưới thẻ của phường đó."""
                     wg = ward_groups[wk]
                     if show_wards:
                         n_wb = len(wg["items"])
@@ -568,6 +569,32 @@ class BuildingPage(QWidget):
                         self._cards.append(card)
                     self._cluster_flows.append(flow)
                     self.container_lay.addWidget(wrap)
+
+                # ---- CỤM TỰ ĐỘNG ~5 PHƯỜNG: quận nhiều phường -> gom thành cụm cho dễ quản lý ----
+                CLUSTER_SIZE = 5
+                if len(ward_order) > CLUSTER_SIZE:
+                    chunks = [ward_order[i:i + CLUSTER_SIZE]
+                              for i in range(0, len(ward_order), CLUSTER_SIZE)]
+                    for ci, chunk in enumerate(chunks, 1):
+                        c_items = [b for wk in chunk for b in ward_groups[wk]["items"]]
+                        n_cb = len(c_items)
+                        n_cr = sum(int(b.get("rooms_total", 0) or 0) for b in c_items)
+                        n_cv = sum(int(b.get("rooms_vacant", 0) or 0) for b in c_items)
+                        names = ", ".join(ward_groups[wk]["title"] for wk in chunk)
+                        chead = QLabel(
+                            f"    🧩 Cụm {ci} · {names}\n"
+                            f"    {len(chunk)} phường   ·   {n_cb} tòa   ·   "
+                            f"{n_cr} phòng   ·   {n_cv} trống")
+                        chead.setWordWrap(True)
+                        chead.setStyleSheet(
+                            "background:#F0F9FF; color:#0369A1; font-weight:800; font-size:13px;"
+                            "border-left:4px solid #38BDF8; border-radius:8px; padding:8px 12px;")
+                        self.container_lay.addWidget(chead)
+                        for wk in chunk:
+                            _ward_sub(wk)
+                else:
+                    for wk in ward_order:
+                        _ward_sub(wk)
 
         self.lbl_count.setText(f"{len(buildings)} tòa nhà")
 

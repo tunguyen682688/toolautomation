@@ -147,6 +147,12 @@ def main() -> int:
     from PySide6.QtGui import QPixmap, QColor, QFont
     from PySide6.QtCore import Qt, QSize
 
+    # ---- HIGH-DPI / RESPONSIVE: phải đặt TRƯỚC khi tạo QApplication ----
+    # Màn hình Windows scale 125%/150%/200% -> giữ tỉ lệ gốc (không làm mờ, không cắt UI)
+    os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+
     app = QApplication(sys.argv)
     app.setApplicationName("Kho Phòng Căn Hộ")
     app.setOrganizationName("Tú Nguyễn Land")

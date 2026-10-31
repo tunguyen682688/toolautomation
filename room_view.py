@@ -332,6 +332,16 @@ class RoomPage(QWidget):
         self.btn_reset.setToolTip("Bỏ toàn bộ bộ lọc")
         self.btn_reset.clicked.connect(self.reset_filters)
         row2.addWidget(self.btn_reset)
+
+        # ---- TÌM THEO YÊU CẦU KHÁCH: dán câu khách hỏi -> 4 vòng mở rộng khu vực ----
+        self.btn_request = QPushButton("🎯 Yêu cầu khách")
+        self.btn_request.setToolTip(
+            "Dán nguyên câu khách hỏi (giá / tiện ích / khu vực)\n"
+            "VD: phòng 7tr full nội thất thang máy, gửi xe, quanh P13 hay đường Bình Lợi\n"
+            "-> tự tách tiêu chí và tìm theo 4 vòng: đúng khu vực → lân cận → giáp ranh → toàn kho")
+        self.btn_request.setCursor(Qt.PointingHandCursor)
+        row2.addWidget(self.btn_request)
+
         row2.addStretch(1)
 
         self.lbl_count = QLabel("0 phòng")

@@ -268,6 +268,7 @@ class MainWindow(QMainWindow):
         self.page_buildings.open_detail.connect(self._focus_room)
         self.page_rooms.duplicate_open.connect(self._focus_room)
         self.page_rooms.open_building.connect(self._open_building_from_room)
+        self.page_rooms.btn_request.clicked.connect(self._open_request_dialog)
 
         self.stack.addWidget(self.page_dashboard)     # 0
         self.stack.addWidget(self.page_buildings)     # 1
@@ -397,6 +398,19 @@ class MainWindow(QMainWindow):
             return
         self.navigate("buildings")
         self.page_buildings.building_selected.emit({"building": b})
+
+    # ------------------------------------------------------------------ yêu cầu khách
+    def _open_request_dialog(self):
+        """Mở hộp thoại "Tìm theo yêu cầu khách" - tách giá/tiện ích/khu vực, tìm 4 vòng."""
+        from request_dialog import RequestDialog
+        dlg = RequestDialog(self.mgr, self)
+
+        def _open(d: dict):
+            self.navigate("rooms")
+            self.page_rooms.set_query(text="", filter_dict=d, title=d.get("title"))
+
+        dlg.open_rooms.connect(_open)
+        dlg.exec()
 
     # ------------------------------------------------------------------ tìm kiếm
     def focus_search(self):

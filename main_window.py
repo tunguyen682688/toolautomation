@@ -237,6 +237,7 @@ class MainWindow(QMainWindow):
         self.page_buildings.building_selected.connect(lambda d: None)  # panel tự cập nhật bên trong BuildingPage
         self.page_buildings.open_detail.connect(self._focus_room)
         self.page_rooms.duplicate_open.connect(self._focus_room)
+        self.page_rooms.open_building.connect(self._open_building_from_room)
 
         self.stack.addWidget(self.page_dashboard)     # 0
         self.stack.addWidget(self.page_buildings)     # 1
@@ -356,6 +357,16 @@ class MainWindow(QMainWindow):
         self.page_rooms.set_query(text=self.search.text(), filter_dict={"filter": RoomFilter()},
                                   title=f"Định vị: {r.get('room_code')}")
         self.page_rooms._open_detail(rid)
+
+    def _open_building_from_room(self, bid: str):
+        """Từ panel chi tiết phòng -> mở trang Tòa nhà & chọn đúng tòa của phòng."""
+        if not bid:
+            return
+        b = self.mgr.building(bid)
+        if not b:
+            return
+        self.navigate("buildings")
+        self.page_buildings.building_selected.emit({"building": b})
 
     # ------------------------------------------------------------------ tìm kiếm
     def focus_search(self):

@@ -165,7 +165,10 @@ def main() -> int:
         assert mgr.room(rid)["id"] == rid, "ID phòng thay đổi khi đổi trạng thái"
         # panel chi tiết
         win.page_rooms._open_detail(rid)
-        assert "P-" in win.page_rooms.detail_body.text() or "Số căn" in win.page_rooms.detail_body.text()
+        assert rid == win.page_rooms._current_detail_id
+        assert win.page_rooms.d_code.text() == mgr.room(rid)["room_code"]
+        assert mgr.room(rid)["room_code"] in win.page_rooms.d_info.text() or \
+            "Số căn" in win.page_rooms.d_info.text()
 
     check("Bảng phòng: ảo hoá + tìm không dấu + lọc + đổi trạng thái giữ ID", room_table)
 

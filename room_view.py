@@ -14,9 +14,9 @@ from PySide6.QtGui import QAction, QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFrame, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-    QMenu, QMessageBox, QPushButton, QSizePolicy, QSpinBox, QSplitter,
-    QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolButton,
-    QVBoxLayout, QWidget,
+    QMenu, QMessageBox, QPushButton, QSizePolicy, QScrollArea, QSpinBox,
+    QSplitter, QStyledItemDelegate, QStyleOptionViewItem, QTableView,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 import text_utils as tu
@@ -181,6 +181,7 @@ class RoomTableModel(QAbstractTableModel):
 class RoomPage(QWidget):
     status_changed = Signal(str, str)     # room_id, status
     duplicate_open = Signal(str)          # mở bản ghi trùng
+    open_building = Signal(str)           # mở trang Tòa nhà & chọn tòa của phòng này
 
     def __init__(self, manager, parent=None):
         super().__init__(parent)
@@ -359,7 +360,7 @@ class RoomPage(QWidget):
         self.table.doubleClicked.connect(lambda idx: self._open_detail(self.model.room_id_at(idx.row())))
         split.addWidget(self.table)
 
-        # Panel chi tiết (bên phải - cố định chiều rộng)
+        # Panel chi tiết (bên phải) - cấu trúc WIDGET, cuộn được, không tràn
         detail = QFrame()
         detail.setObjectName("DetailPanel")
         detail.setMinimumWidth(340)
@@ -368,26 +369,117 @@ class RoomPage(QWidget):
         dl.setContentsMargins(0, 0, 0, 0)
         dl.setSpacing(0)
 
-        # tiêu đề panel
+        # ---------- HEADER: mã phòng + badge trạng thái + đổi nhanh ----------
         phead = QFrame()
-        phead.setObjectName("Card")
-        phead.setStyleSheet("QFrame#Card { background: transparent; border: none; border-radius: 0; }")
+        phead.setStyleSheet("background:transparent; border:none;")
         phl = QVBoxLayout(phead)
-        phl.setContentsMargins(20, 16, 20, 14)
-        phl.setSpacing(4)
+        phl.setContentsMargins(20, 16, 20, 12)
+        phl.setSpacing(8)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(8)
         dt = QLabel("Chi tiết phòng")
         dt.setObjectName("SectionTitle")
-        phl.addWidget(dt)
+        top_row.addWidget(dt)
+        top_row.addStretch(1)
+        self.d_status = QLabel("")
+        self.d_status.setAlignment(Qt.AlignCenter)
+        self.d_status.setFixedHeight(24)
+        self.d_status.setStyleSheet(
+            "border-radius:12px; padding:2px 12px; font-weight:800; font-size:12px;")
+        top_row.addWidget(self.d_status)
+        phl.addLayout(top_row)
+
+        self.d_code = QLabel("—")
+        self.d_code.setStyleSheet(
+            "font-size:22px; font-weight:800; background:transparent; letter-spacing:-0.5px;")
+        phl.addWidget(self.d_code)
+
+        self.d_sub = QLabel("")
+        self.d_sub.setObjectName("Muted")
+        self.d_sub.setWordWrap(True)
+        phl.addWidget(self.d_sub)
+
+        # đổi trạng thái nhanh (không cần vào form sửa)
+        qs_row = QHBoxLayout()
+        qs_row.setSpacing(8)
+        lbl_qs = QLabel("Đổi trạng thái:")
+        lbl_qs.setObjectName("Muted")
+        qs_row.addWidget(lbl_qs)
+        self.cmb_d_status = QComboBox()
+        for k in RoomStatus.ORDER:
+            self.cmb_d_status.addItem(f"● {RoomStatus.label(k)}", k)
+        self.cmb_d_status.currentIndexChanged.connect(self._quick_status)
+        qs_row.addWidget(self.cmb_d_status, 1)
+        phl.addLayout(qs_row)
         dl.addWidget(phead)
 
-        self.detail_body = QLabel("Chọn một dòng trong bảng để xem chi tiết.")
-        self.detail_body.setTextFormat(Qt.RichText)
-        self.detail_body.setWordWrap(True)
-        self.detail_body.setStyleSheet(
-            "background:transparent; line-height: 160%; padding: 0 20px;")
-        dl.addWidget(self.detail_body, 1)
+        # ---------- NỘI DUNG CUỘN: chỉ số + chip + thông tin + vị trí ----------
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background:transparent;")
+        content = QWidget()
+        content.setStyleSheet("background:transparent;")
+        cl = QVBoxLayout(content)
+        cl.setContentsMargins(20, 4, 20, 8)
+        cl.setSpacing(10)
 
-        # vùng nút hành động (lề đồng nhất 20px với nội dung)
+        # 3 ô chỉ số: Giá / Cọc / Diện tích
+        mrow = QHBoxLayout()
+        mrow.setSpacing(8)
+        self.d_price_fx, self.d_price_val = self._metric_box("Giá thuê")
+        self.d_dep_fx, self.d_dep_val = self._metric_box("Tiền cọc")
+        self.d_area_fx, self.d_area_val = self._metric_box("Diện tích")
+        for fx in (self.d_price_fx, self.d_dep_fx, self.d_area_fx):
+            mrow.addWidget(fx, 1)
+        cl.addLayout(mrow)
+
+        # chip tiện ích (ẩn khi không áp dụng)
+        crow = QHBoxLayout()
+        crow.setSpacing(6)
+        self.d_chip_ks = self._chip_lbl("📸 Đã khảo sát")
+        self.d_chip_ev = self._chip_lbl("⚡ Xe điện")
+        self.d_chip_fg = self._chip_lbl("🌏 Khách nước ngoài")
+        self.d_chip_pet = self._chip_lbl("🐾 Pet")
+        for c in (self.d_chip_ks, self.d_chip_ev, self.d_chip_fg, self.d_chip_pet):
+            crow.addWidget(c)
+        crow.addStretch(1)
+        cl.addLayout(crow)
+
+        # thông tin phòng
+        inf = QLabel("THÔNG TIN")
+        inf.setStyleSheet("color:#9CA3AF; font-size:11px; font-weight:800; "
+                          "background:transparent; letter-spacing:0.5px;")
+        cl.addWidget(inf)
+        self.d_info = QLabel("—")
+        self.d_info.setTextFormat(Qt.RichText)
+        self.d_info.setWordWrap(True)
+        self.d_info.setStyleSheet("background:transparent; line-height:170%;")
+        cl.addWidget(self.d_info)
+
+        # vị trí (tách riêng số nhà/đường/phường/quận + mã tòa)
+        vt = QLabel("VỊ TRÍ")
+        vt.setStyleSheet("color:#9CA3AF; font-size:11px; font-weight:800; "
+                         "background:transparent; letter-spacing:0.5px;")
+        cl.addWidget(vt)
+        self.d_addr = QLabel("—")
+        self.d_addr.setTextFormat(Qt.RichText)
+        self.d_addr.setWordWrap(True)
+        self.d_addr.setStyleSheet("background:transparent; line-height:170%;")
+        cl.addWidget(self.d_addr)
+
+        # meta (ID / cập nhật / phiên bản)
+        self.d_meta = QLabel("")
+        self.d_meta.setWordWrap(True)
+        self.d_meta.setStyleSheet("color:#9CA3AF; font-size:11px; font-weight:600; "
+                                  "background:transparent; line-height:150%;")
+        cl.addWidget(self.d_meta)
+        cl.addStretch(1)
+        scroll.setWidget(content)
+        dl.addWidget(scroll, 1)
+
+        # ---------- NÚT HÀNH ĐỘNG (cố định dưới) ----------
         self.detail_actions = QVBoxLayout()
         self.detail_actions.setContentsMargins(20, 8, 20, 16)
         self.detail_actions.setSpacing(8)
@@ -602,7 +694,57 @@ class RoomPage(QWidget):
         self._apply_filter()
 
     # ------------------------------------------------------------------ chi tiết
+    def _metric_box(self, title: str):
+        """Ô chỉ số nhỏ (Giá/Cọc/Diện tích). Trả về (frame, label_giá_trị)."""
+        fx = QFrame()
+        fx.setStyleSheet(
+            "QFrame { background:#F8FAFC; border:1px solid #E5E7EB; border-radius:10px; }")
+        v = QVBoxLayout(fx)
+        v.setContentsMargins(10, 8, 10, 8)
+        v.setSpacing(2)
+        t = QLabel(title)
+        t.setStyleSheet("color:#6B7280; font-size:11px; font-weight:700; background:transparent; border:none;")
+        val = QLabel("—")
+        val.setStyleSheet("color:#2563EB; font-size:13.5px; font-weight:800; "
+                          "background:transparent; border:none;")
+        val.setWordWrap(True)
+        v.addWidget(t)
+        v.addWidget(val)
+        return fx, val
+
+    def _chip_lbl(self, text: str) -> QLabel:
+        """Chip nhỏ hiển thị tiện ích (📸/⚡/🌏/🐾)."""
+        c = QLabel(text)
+        c.setAlignment(Qt.AlignCenter)
+        c.setFixedHeight(24)
+        c.setStyleSheet(
+            "background:#F0FDF4; color:#15803D; border:1px solid #BBF7D0;"
+            "border-radius:12px; padding:2px 10px; font-size:11.5px; font-weight:700;")
+        return c
+
+    def _reset_detail_empty(self, msg: str):
+        """Trạng thái panel khi chưa chọn phòng / không tìm thấy."""
+        self.d_code.setText("—")
+        self.d_status.setText("●")
+        self.d_status.setStyleSheet(
+            "background:#F3F4F6; color:#6B7280; border-radius:12px; padding:2px 12px; "
+            "font-weight:800; font-size:12px;")
+        self.d_sub.setText(msg)
+        self.d_price_val.setText("—")
+        self.d_dep_val.setText("—")
+        self.d_area_val.setText("—")
+        for chip in (self.d_chip_ks, self.d_chip_ev, self.d_chip_fg, self.d_chip_pet):
+            chip.hide()
+        self.d_info.setText("—")
+        self.d_addr.setText("—")
+        self.d_meta.setText("")
+        self.cmb_d_status.blockSignals(True)
+        self.cmb_d_status.setCurrentIndex(0)
+        self.cmb_d_status.setEnabled(False)
+        self.cmb_d_status.blockSignals(False)
+
     def _open_detail(self, rid: str):
+        self._current_detail_id = rid
         # dọn nút cũ
         while self.detail_actions.count():
             item = self.detail_actions.takeAt(0)
@@ -610,56 +752,95 @@ class RoomPage(QWidget):
             if w:
                 w.deleteLater()
         if not rid:
-            self.detail_body.setText("Chọn một dòng trong bảng để xem chi tiết.")
+            self._reset_detail_empty("Chọn một dòng trong bảng để xem chi tiết.")
             return
         r = self.mgr.room(rid)
         if not r:
-            self.detail_body.setText("Không tìm thấy phòng (có thể đã xóa).")
+            self._reset_detail_empty("Không tìm thấy phòng (có thể đã xóa).")
             return
+
         st = r.get("status", "")
-        fg = r.get("foreign_guest", 0)
-        acc = "#2563EB"
-        html = f"""
-        <div style='font-size:18px; font-weight:800;'>{r.get('room_code') or '(chưa có mã)'}</div>
-        <div style='color:{status_color(st)}; font-weight:700; margin-top:2px;'>● {status_label(st)}</div>
-        {'<div style="color:#15803D; font-weight:700; font-size:12px; margin-top:2px;">🌏 Nhận khách nước ngoài</div>' if fg else ''}
-        <hr style='border:none; border-top:1px solid #E5E7EB; margin:10px 0;'>
-        <table width='100%' cellspacing='0' cellpadding='0' style='font-size:13px;'>
-        <tr><td style='color:#6B7280; font-weight:700; padding:2px 0;'>Giá thuê</td>
-            <td style='color:{acc}; font-weight:800; text-align:right;'>{tu.format_money(r.get('price'))} ₫</td></tr>
-        <tr><td style='color:#6B7280; font-weight:700; padding:2px 0;'>Tiền cọc</td>
-            <td style='color:{acc}; font-weight:800; text-align:right;'>{tu.format_money(r.get('deposit'))} ₫</td></tr>
-        <tr><td style='color:#6B7280; font-weight:700; padding:2px 0;'>Diện tích</td>
-            <td style='color:{acc}; font-weight:800; text-align:right;'>{r.get('area') or '—'} m2</td></tr>
-        </table>
-        <hr style='border:none; border-top:1px solid #E5E7EB; margin:10px 0;'>
-        <div style='font-size:12.5px; line-height:1.8;'>
-        <span style='color:#6B7280; font-weight:700;'>Địa chỉ:</span> {r.get('address') or '—'}<br>
-        <span style='color:#6B7280; font-weight:700;'>Số căn / Tầng:</span> {r.get('unit_code') or '—'} / {r.get('floor') or '—'}<br>
-        <span style='color:#6B7280; font-weight:700;'>Loại phòng:</span> {r.get('room_type') or '—'}<br>
-        <span style='color:#6B7280; font-weight:700;'>Sức chứa:</span> {r.get('capacity') or '—'}<br>
-        <span style='color:#6B7280; font-weight:700;'>Khảo sát:</span> {'✅ Đã khảo sát' if r.get('surveyed') else 'Chưa khảo sát'}<br>
-        <span style='color:#6B7280; font-weight:700;'>Xe điện:</span> {'⚡ Có sạc' if r.get('ev_support') else 'Không'}<br>
-        <span style='color:#6B7280; font-weight:700;'>Thú cưng:</span> {r.get('pet_policy') or '—'}<br>
-        <span style='color:#6B7280; font-weight:700;'>SĐT chủ nhà:</span> {r.get('owner_phone') or '—'}<br>
-        <span style='color:#6B7280; font-weight:700;'>Zalo:</span> {r.get('zalo_group') or '—'}<br>
-        <span style='color:#6B7280; font-weight:700;'>Drive:</span> {r.get('drive_link') or '—'}<br>
-        <span style='color:#6B7280; font-weight:700;'>Ghi chú:</span> {r.get('notes') or '—'}<br>
-        </div>
-        <hr style='border:none; border-top:1px solid #E5E7EB; margin:12px 0;'>
-        <span style='color:#9CA3AF; font-size:11px; font-weight:600;'>
-          ID: {r.get('id')}<br>
-          Cập nhật: {r.get('updated_at')} bởi {r.get('updated_by')}<br>
-          Phiên bản: v{r.get('version')} · Đồng bộ: {r.get('sync_state')}
-        </span>"""
-        if r.get("needs_verify"):
-            html += ("<br><span style='color:#F97316; font-weight:700;'>⚠ Thiếu số căn - "
-                     "cần xác minh khoá nhận diện</span>")
-        self.detail_body.setText(html)
+        # ---- header: mã + badge trạng thái + dòng phụ
+        self.d_code.setText(r.get("room_code") or "(chưa có mã)")
+        self.d_status.setText(f"● {status_label(st)}")
+        self.d_status.setStyleSheet(
+            f"background:{status_bg(st)}; color:{status_color(st)}; border-radius:12px; "
+            "padding:2px 12px; font-weight:800; font-size:12px;")
+        sub_parts = [x for x in (f"🏢 {r.get('building_code')}" if r.get("building_code") else "",
+                                 r.get("room_type") or "") if x]
+        self.d_sub.setText("  ·  ".join(sub_parts) if sub_parts else "—")
+
+        # ---- đổi trạng thái nhanh (chặn signal để không tự gọi lại)
+        self.cmb_d_status.setEnabled(True)
+        self.cmb_d_status.blockSignals(True)
+        i = self.cmb_d_status.findData(st)
+        self.cmb_d_status.setCurrentIndex(max(0, i))
+        self.cmb_d_status.blockSignals(False)
+
+        # ---- 3 ô chỉ số
+        self.d_price_val.setText(f"{tu.format_money(r.get('price'))} ₫")
+        self.d_dep_val.setText(f"{tu.format_money(r.get('deposit'))} ₫")
+        self.d_area_val.setText(f"{r.get('area') or '—'} m2")
+
+        # ---- chip tiện ích
+        self.d_chip_ks.setVisible(bool(r.get("surveyed")))
+        self.d_chip_ev.setVisible(bool(r.get("ev_support")))
+        self.d_chip_fg.setVisible(bool(r.get("foreign_guest")))
+        pet = r.get("pet_policy") or ""
+        self.d_chip_pet.setVisible(bool(pet))
+        if pet:
+            self.d_chip_pet.setText(f"🐾 {pet}")
+
+        # ---- thông tin phòng
+        from html import escape
+
+        def esc(v):
+            return escape(str(v)) if v not in (None, "") else "—"
+        info_rows = [
+            ("Số căn", r.get("unit_code")),
+            ("Tầng", r.get("floor")),
+            ("Sức chứa", r.get("capacity")),
+            ("Đánh giá", r.get("rating")),
+            ("Ghi chú", r.get("notes")),
+        ]
+        self.d_info.setText(
+            "<div style='font-size:12.5px;'>"
+            + "".join(f"<div style='margin:3px 0;'>"
+                      f"<span style='color:#6B7280; font-weight:700;'>{k}: </span>"
+                      f"<span style='color:#111827;'>{esc(v)}</span></div>"
+                      for k, v in info_rows)
+            + (f"<div style='margin-top:6px; color:#EA580C; font-weight:700;'>"
+               f"⚠ Thiếu số căn - cần xác minh khoá nhận diện</div>" if r.get("needs_verify") else "")
+            + "</div>")
+
+        # ---- vị trí (tách riêng từng thành phần)
+        addr_rows = [
+            ("Số nhà", r.get("house_number")),
+            ("Tên đường", r.get("street")),
+            ("Phường", r.get("ward")),
+            ("Quận / Khu vực", r.get("district")),
+        ]
+        full = r.get("address") or ""
+        self.d_addr.setText(
+            "<div style='font-size:12.5px;'>"
+            f"<div style='margin-bottom:4px; color:#111827; font-weight:600;'>{esc(full)}</div>"
+            + "".join(f"<div style='margin:2px 0;'>"
+                      f"<span style='color:#6B7280; font-weight:700;'>{k}: </span>"
+                      f"<span style='color:#111827;'>{esc(v)}</span></div>"
+                      for k, v in addr_rows)
+            + "</div>")
+
+        # ---- meta
+        self.d_meta.setText(
+            f"ID: {r.get('id')}\n"
+            f"Cập nhật: {r.get('updated_at')} bởi {r.get('updated_by')}\n"
+            f"Phiên bản: v{r.get('version')} · Đồng bộ: {r.get('sync_state')}")
 
         # nút hành động: ĐỀU NHAU full-width (Sửa - Primary, còn lại DetailAction, Xóa - Danger)
+        bid = r.get("building_id", "")
         for label, slot in (
             ("✏️  Sửa chi tiết", lambda: self._edit_room(rid)),
+            ("🏢  Xem tòa nhà", lambda: self.open_building.emit(bid)),
             ("📞  Gọi chủ nhà", lambda: self._call(rid)),
             ("💬  Mở Zalo", lambda: self._zalo(rid)),
             ("📁  Mở Drive", lambda: self._drive(rid)),
@@ -678,6 +859,27 @@ class RoomPage(QWidget):
                 b.setObjectName("DetailAction")
             b.clicked.connect(slot)
             self.detail_actions.addWidget(b)
+
+    def _quick_status(self, *_):
+        """Đổi trạng thái nhanh ngay trong panel (không cần mở form)."""
+        rid = getattr(self, "_current_detail_id", "")
+        if not rid:
+            return
+        new_st = self.cmb_d_status.currentData()
+        r = self.mgr.room(rid) or {}
+        if not r or r.get("status") == new_st:
+            return
+        try:
+            self.mgr.change_status(
+                rid, new_st,
+                actor=self.mgr.settings.get("user_name") or "Admin",
+                note="Đổi nhanh từ panel chi tiết")
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Không đổi được trạng thái", str(e))
+            return
+        self.status_changed.emit(rid, new_st)
+        self.refresh()
+        self._open_detail(rid)
 
     # ------------------------------------------------------------------ hành động
     def _current_room_id(self) -> str:

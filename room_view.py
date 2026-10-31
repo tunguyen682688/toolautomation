@@ -259,6 +259,11 @@ class RoomPage(QWidget):
         self.cmb_type.currentIndexChanged.connect(self._apply_filter)
         row1.addWidget(self.cmb_type)
 
+        self.cmb_district = QComboBox()
+        self.cmb_district.addItem("Tất cả khu vực", None)
+        self.cmb_district.currentIndexChanged.connect(self._district_changed)
+        row1.addWidget(self.cmb_district)
+
         self.cmb_building = QComboBox()
         self.cmb_building.addItem("Tất cả tòa nhà", None)
         self.cmb_building.setMinimumWidth(190)
@@ -393,21 +398,64 @@ class RoomPage(QWidget):
         # tải danh sách tòa nhà vào bộ lọc
         self._load_buildings()
 
-    def _load_buildings(self):
-        """Đổ danh sách tòa nhà vào combobox lọc (giữ nguyên lựa chọn hiện tại nếu có)."""
-        cur = self.cmb_building.currentData()
+    def _load_buildings(self, district: Optional[str] = None):
+        """Đổ KHU VỰC + danh sách tòa nhà vào combobox lọc.
+
+        - Combobox khu vực: các quận đang có tòa (gộp 'Q. Bình Thạnh cũ' = 'Q. Bình Thạnh').
+        - Combobox tòa: nếu truyền district -> chỉ hiện tòa thuộc khu vực đó.
+        Giữ nguyên lựa chọn hiện tại nếu vẫn còn hợp lệ.
+        """
+        cur_district = district if district is not None else self.cmb_district.currentData()
+        cur_building = self.cmb_building.currentData()
+
+        try:
+            buildings = self.mgr.buildings()
+        except Exception:  # noqa: BLE001
+            buildings = []
+
+        # ---- gom khu vực: key = canon_district, display = tên hay gặp nhất
+        zone_display: Dict[str, str] = {}
+        zone_count: Dict[str, int] = {}
+        for b in buildings:
+            raw = str(b.get("district") or "").strip()
+            if not raw:
+                continue
+            k = tu.canon_district(raw)
+            if not k:
+                continue
+            zone_count[k] = zone_count.get(k, 0) + 1
+            if k not in zone_display:
+                zone_display[k] = raw
+            elif zone_count[k] > 0 and len(raw) < len(zone_display[k]):
+                zone_display[k] = raw   # ưu tiên tên ngắn gọn ("Q. Bình Thạnh" hơn "... cũ")
+
+        # ---- combobox khu vực
+        self.cmb_district.blockSignals(True)
+        self.cmb_district.clear()
+        self.cmb_district.addItem("Tất cả khu vực", None)
+        for k in sorted(zone_display, key=lambda x: -zone_count[x]):
+            self.cmb_district.addItem(f"📍 {zone_display[k]}  ({zone_count[k]} tòa)", zone_display[k])
+        idx = self.cmb_district.findData(cur_district)
+        self.cmb_district.setCurrentIndex(max(0, idx))
+        self.cmb_district.blockSignals(False)
+
+        # ---- combobox tòa (lọc theo khu vực đang chọn)
+        sel_district = self.cmb_district.currentData()
         self.cmb_building.blockSignals(True)
         self.cmb_building.clear()
         self.cmb_building.addItem("Tất cả tòa nhà", None)
-        try:
-            for b in self.mgr.buildings():
-                self.cmb_building.addItem(f"{b.get('code','')} — {b.get('display','')}", b["id"])
-        except Exception:  # noqa: BLE001
-            pass
-        # khôi phục lựa chọn nếu toà vẫn còn
-        idx = self.cmb_building.findData(cur)
+        for b in buildings:
+            if sel_district and tu.canon_district(b.get("district")) != tu.canon_district(sel_district):
+                continue
+            self.cmb_building.addItem(f"{b.get('code','')} — {b.get('display','')}", b["id"])
+        idx = self.cmb_building.findData(cur_building)
         self.cmb_building.setCurrentIndex(max(0, idx))
         self.cmb_building.blockSignals(False)
+
+    def _district_changed(self, *_):
+        """Đổi khu vực -> làm mới danh sách tòa theo khu vực + lọc phòng."""
+        self._load_buildings(district=self.cmb_district.currentData())
+        self._apply_filter()
 
     # ------------------------------------------------------------------ bộ lọc / query
     def set_query(self, text: str = "", filter_dict: Optional[Dict] = None,
@@ -419,7 +467,8 @@ class RoomPage(QWidget):
             multi = list(self._filter.statuses) if len(self._filter.statuses or ()) > 1 else None
             # đồng bộ điều khiển (tạm chặn signal để không clear bộ lọc nhiều trạng thái)
             st = (self._filter.statuses or [None])[0] if self._filter.statuses else None
-            widgets = [self.cmb_status, self.cmb_type, self.cmb_building, self.chk_ev, self.chk_foreign,
+            widgets = [self.cmb_status, self.cmb_type, self.cmb_district, self.cmb_building,
+                       self.chk_ev, self.chk_foreign,
                        self.chk_pet,
                        self.chk_unsurvey, self.chk_deleted, self.spin_min, self.spin_max]
             for w in widgets:
@@ -428,6 +477,8 @@ class RoomPage(QWidget):
             self.cmb_status.setCurrentIndex(max(0, i))
             i = self.cmb_type.findData((self._filter.room_types or [None])[0])
             self.cmb_type.setCurrentIndex(max(0, i))
+            i = self.cmb_district.findData(self._filter.district)
+            self.cmb_district.setCurrentIndex(max(0, i))
             i = self.cmb_building.findData(self._filter.building_id)
             self.cmb_building.setCurrentIndex(max(0, i))
             self.chk_ev.setChecked(bool(self._filter.ev_support))
@@ -458,8 +509,10 @@ class RoomPage(QWidget):
             self._multi_statuses = None
         types = [self.cmb_type.currentData()] if self.cmb_type.currentData() else None
         building_id = self.cmb_building.currentData()
+        district = self.cmb_district.currentData()
         return RoomFilter(
             building_id=building_id,
+            district=district,
             statuses=statuses,
             room_types=types,
             price_min=self.spin_min.value() or None,
@@ -488,6 +541,7 @@ class RoomPage(QWidget):
         self._title = "Tất cả phòng"
         self.cmb_status.setCurrentIndex(0)
         self.cmb_type.setCurrentIndex(0)
+        self.cmb_district.setCurrentIndex(0)
         self.cmb_building.setCurrentIndex(0)
         self.chk_ev.setChecked(False)
         self.chk_foreign.setChecked(False)

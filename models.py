@@ -104,6 +104,7 @@ class RoomStatus:
 @dataclass
 class RoomFilter:
     building_id: Optional[str] = None
+    district: Optional[str] = None          # khu vực (quận) - so sánh qua canon_district
     statuses: Optional[Sequence[str]] = None
     room_types: Optional[Sequence[str]] = None
     price_min: Optional[int] = None
@@ -118,7 +119,8 @@ class RoomFilter:
 
     def key(self) -> Tuple:
         return (
-            self.building_id, tuple(self.statuses or ()), tuple(self.room_types or ()),
+            self.building_id, tu.canon_district(self.district),
+            tuple(self.statuses or ()), tuple(self.room_types or ()),
             self.price_min, self.price_max, self.ev_support, self.foreign_guest, self.pet_allowed,
             self.surveyed, self.needs_verify, self.include_deleted, tu.norm(self.text),
         )

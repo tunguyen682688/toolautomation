@@ -40,6 +40,7 @@ class Doc:
     surveyed: bool
     foreign_guest: bool
     area: str
+    district: str
     needs_verify: bool
     deleted: bool
     code_key: str
@@ -72,6 +73,7 @@ def _make_doc(row: Dict) -> Doc:
         surveyed=bool(row.get("surveyed")),
         foreign_guest=bool(row.get("foreign_guest")),
         area=str(row.get("area") or ""),
+        district=str(row.get("district") or ""),
         needs_verify=bool(row.get("needs_verify")),
         deleted=bool(row.get("deleted")),
         code_key=code_key,
@@ -189,6 +191,8 @@ class SearchIndex:
         if f.pet_allowed is not None and doc.pet != f.pet_allowed:
             return False
         if f.foreign_guest is not None and doc.foreign_guest != f.foreign_guest:
+            return False
+        if f.district and tu.canon_district(doc.district) != tu.canon_district(f.district):
             return False
         if f.surveyed is not None and doc.surveyed != f.surveyed:
             return False

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import QModelIndex, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QDialogButtonBox, QFormLayout, QFrame,
+    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QLayout, QListView,
     QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QStyle, QTableView, QToolButton, QVBoxLayout, QWidget,
@@ -409,9 +409,14 @@ class BuildingPage(QWidget):
         fl.setContentsMargins(22, 8, 22, 8)
         fl.setSpacing(10)
         from PySide6.QtWidgets import QLineEdit as _QLE
+        self.cmb_zone = QComboBox()
+        self.cmb_zone.addItem("Tất cả khu vực", None)
+        self.cmb_zone.currentIndexChanged.connect(self._apply_filter)
+        self.cmb_zone.setToolTip("Phân cụm tòa nhà theo khu vực (quận)")
+        fl.addWidget(self.cmb_zone)
         self.ed_search = _QLE()
         self.ed_search.setPlaceholderText("🔎 Lọc theo địa chỉ / chủ nhà / SĐT...")
-        self.ed_search.setMinimumWidth(340)
+        self.ed_search.setMinimumWidth(300)
         self.ed_search.textChanged.connect(self._apply_filter)
         fl.addWidget(self.ed_search, 1)
         self.lbl_count = QLabel("")
@@ -432,9 +437,12 @@ class BuildingPage(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         self.container = QWidget()
-        self.flow = FlowLayout(self.container, 14, 14)
-        self.flow.setContentsMargins(0, 0, 6, 0)
-        self.container.setLayout(self.flow)
+        # phân cụm: mỗi khu vực = 1 header + 1 dòng thẻ (FlowLayout riêng)
+        self.container_lay = QVBoxLayout(self.container)
+        self.container_lay.setContentsMargins(0, 0, 6, 0)
+        self.container_lay.setSpacing(6)
+        self.container.setLayout(self.container_lay)
+        self._cluster_flows: List[FlowLayout] = []
         scroll.setWidget(self.container)
         ll.addWidget(scroll, 1)
         split.addWidget(left)
@@ -453,25 +461,96 @@ class BuildingPage(QWidget):
     # ------------------------------------------------------------------ dữ liệu
     def refresh(self, text: str = ""):
         text = text or self.ed_search.text()
-        buildings = self.mgr.buildings(text=text)
-        # xoá thẻ cũ
-        while self.flow.count():
-            item = self.flow.takeAt(0)
+        base = self.mgr.buildings(text=text)
+        self._reload_zones(base)
+
+        zone = self.cmb_zone.currentData()
+        buildings = base
+        if zone:
+            buildings = [b for b in base
+                         if tu.canon_district(b.get("district")) == tu.canon_district(zone)]
+
+        # dọn container cũ
+        while self.container_lay.count():
+            item = self.container_lay.takeAt(0)
             w = item.widget()
             if w:
                 w.deleteLater()
         self._cards = []
+        self._cluster_flows = []
+
         if not buildings:
             empty = QLabel("Không có tòa nhà nào khớp bộ lọc.")
             empty.setObjectName("Muted")
-            self.flow.addWidget(empty)
-        for b in buildings:
-            card = BuildingCard(b)
-            card.open_rooms.connect(self.building_selected.emit)
-            card.edit_requested.connect(self._edit)
-            self.flow.addWidget(card)
-            self._cards.append(card)
+            self.container_lay.addWidget(empty)
+        else:
+            # ---- PHÂN CỤM THEO KHU VỰC (quận): 'Q. Bình Thạnh cũ' = 'Q. Bình Thạnh' ----
+            groups: Dict[str, Dict] = {}
+            order: List[str] = []
+            for b in buildings:
+                raw = str(b.get("district") or "").strip()
+                k = tu.canon_district(raw) or "(khác)"
+                g = groups.get(k)
+                if not g:
+                    g = {"title": raw or "Khu vực khác", "items": []}
+                    groups[k] = g
+                    order.append(k)
+                g["items"].append(b)
+                if raw and len(raw) < len(g["title"]):
+                    g["title"] = raw        # ưu tiên tên ngắn gọn
+            order.sort(key=lambda k: -len(groups[k]["items"]))   # cụm nhiều tòa lên trước
+
+            for k in order:
+                g = groups[k]
+                n_b = len(g["items"])
+                n_rooms = sum(int(b.get("rooms_total", 0) or 0) for b in g["items"])
+                n_vac = sum(int(b.get("rooms_vacant", 0) or 0) for b in g["items"])
+                header = QLabel(
+                    f"📍 {g['title']}    ·    {n_b} tòa    ·    {n_rooms} phòng    ·    {n_vac} trống")
+                header.setStyleSheet(
+                    "background:#EFF6FF; color:#1D4ED8; font-weight:800; font-size:13.5px;"
+                    "border-left:4px solid #2563EB; border-radius:8px; padding:8px 12px;")
+                self.container_lay.addWidget(header)
+
+                wrap = QWidget()
+                wrap.setStyleSheet("background:transparent;")
+                flow = FlowLayout(wrap, 14, 14)
+                flow.setContentsMargins(0, 0, 6, 0)
+                wrap.setLayout(flow)
+                for b in g["items"]:
+                    card = BuildingCard(b)
+                    card.open_rooms.connect(self.building_selected.emit)
+                    card.edit_requested.connect(self._edit)
+                    flow.addWidget(card)
+                    self._cards.append(card)
+                self._cluster_flows.append(flow)
+                self.container_lay.addWidget(wrap)
+
         self.lbl_count.setText(f"{len(buildings)} tòa nhà")
+
+    def _reload_zones(self, base_buildings: List[Dict[str, Any]]):
+        """Cập nhật combobox khu vực từ danh sách tòa (không phụ thuộc bộ lọc khu vực)."""
+        cur = self.cmb_zone.currentData()
+        zones: Dict[str, str] = {}
+        counts: Dict[str, int] = {}
+        for b in base_buildings:
+            raw = str(b.get("district") or "").strip()
+            if not raw:
+                continue
+            k = tu.canon_district(raw)
+            if not k:
+                continue
+            counts[k] = counts.get(k, 0) + 1
+            if k not in zones or len(raw) < len(zones[k]):
+                zones[k] = raw
+        self.cmb_zone.blockSignals(True)
+        self.cmb_zone.clear()
+        self.cmb_zone.addItem("Tất cả khu vực", None)
+        for k in sorted(zones, key=lambda x: -counts[x]):
+            self.cmb_zone.addItem(f"📍 {zones[k]}  ({counts[k]} tòa)", zones[k])
+        idx = self.cmb_zone.findData(cur)
+        self.cmb_zone.setCurrentIndex(max(0, idx))
+        self.cmb_zone.blockSignals(False)
 
     def _apply_filter(self, *_):
         self.refresh()

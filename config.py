@@ -103,6 +103,7 @@ DEFAULTS: Dict[str, Any] = {
     "page_size": 500,
     "auto_save": True,
     "confirm_delete": True,
+    "ui_theme": "dark",              # dark | light (giao diện 2 chế độ)
     # --- đồng bộ Google ---
     "google_enabled": False,
     "credentials_file": "",           # ví dụ: config/service_account.json (KHÔNG chứa trong mã nguồn)

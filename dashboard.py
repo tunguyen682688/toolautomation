@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 import text_utils as tu
+import theme
 from models import RoomFilter, RoomStatus
 from theme import C_ACCENT, C_TEXT2, C_MUTED, status_bg, status_color, status_label
 
@@ -102,13 +103,13 @@ class StatusPie(QWidget):
         rect.setHeight(w)
         total = sum(c for _, c, _ in self._data) or 1
         if not self._data:
-            p.setPen(QColor("#CBD5E1"))
+            p.setPen(QColor(theme.c("text3")))
             p.drawText(rect, Qt.AlignCenter, "Chưa có dữ liệu")
             return
         start = 0.0
         for label, count, color in self._data:
             span = 360.0 * count / total
-            p.setPen(QPen(QColor("#FFFFFF"), 2))
+            p.setPen(QPen(QColor(theme.c("card")), 2))
             p.setBrush(QColor(color))
             p.drawPie(rect, int(start * 16), int(span * 16))
             start += span
@@ -119,7 +120,7 @@ class StatusPie(QWidget):
             p.setBrush(QColor(color))
             p.setPen(Qt.NoPen)
             p.drawRoundedRect(self.rect().width() - 138, y - 9, 11, 11, 3, 3)
-            p.setPen(QColor("#334155"))
+            p.setPen(QColor(theme.c("text2")))
             p.drawText(self.rect().width() - 122, y, f"{label[:16]}  {count}")
             y += 19
 
@@ -144,7 +145,7 @@ class TypeBars(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         if not self._rows:
-            p.setPen(QColor("#94A3B8"))
+            p.setPen(QColor(theme.c("text3")))
             p.drawText(self.rect(), Qt.AlignCenter, "Chưa có dữ liệu loại phòng")
             return
         max_v = max((t for _, t, _ in self._rows), default=1) or 1
@@ -153,19 +154,19 @@ class TypeBars(QWidget):
         bar_w = self.width() - label_w - 70
         for i, (name, total, vacant) in enumerate(self._rows):
             y = i * h + 3
-            p.setPen(QColor("#475569"))
+            p.setPen(QColor(theme.c("text2")))
             p.drawText(4, y + h - 7, name[:16])
-            p.setBrush(QColor("#E2E8F0"))
+            p.setBrush(QColor(theme.c("track")))
             p.setPen(Qt.NoPen)
             p.drawRoundedRect(label_w, y + 4, bar_w, h - 12, 5, 5)
             w = int(bar_w * total / max_v)
-            p.setBrush(QColor(C_ACCENT))
+            p.setBrush(QColor(theme.c("accent")))
             p.drawRoundedRect(label_w, y + 4, max(6, w), h - 12, 5, 5)
             if vacant:
                 wv = int(bar_w * vacant / max_v)
-                p.setBrush(QColor("#16A34A"))
+                p.setBrush(QColor(theme.c("ok")))
                 p.drawRoundedRect(label_w, y + 4, max(4, wv), h - 12, 5, 5)
-            p.setPen(QColor("#0F172A"))
+            p.setPen(QColor(theme.c("text")))
             p.drawText(label_w + bar_w + 8, y + h - 7, f"{total} (trống {vacant})")
 
 
@@ -184,7 +185,7 @@ class HistoryRow(QFrame):
         code = rec.get("room_code") or rec.get("room_id", "")[-8:]
         main = QLabel(
             f"<b>{code}</b> &nbsp; {status_label(rec.get('old_status', ''))} "
-            f"<span style='color:#94A3B8'>→</span> <b>{status_label(rec.get('new_status', ''))}</b>"
+            f"<span style='color:{theme.c('text3')}'>→</span> <b>{status_label(rec.get('new_status', ''))}</b>"
         )
         main.setTextFormat(Qt.RichText)
         main.setStyleSheet("background:transparent;")

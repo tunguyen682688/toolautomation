@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 import text_utils as tu
 from models import RoomFilter, RoomStatus
+import theme
 from theme import APP_QSS, status_bg, status_color, status_label
 
 from config import APP_ENV, env_badge, DATA_DIR
@@ -60,7 +61,7 @@ class SearchPopupReal(QListView):
                 f"{it.get('room_type') or '—'} · {it.get('unit_code') or '—'}")
             item.setData(it, Qt.UserRole)
             from PySide6.QtGui import QColor, QFont
-            item.setForeground(QColor("#0F172A"))
+            item.setForeground(QColor(theme.c("text")))
             f = QFont()
             f.setPointSize(10)
             item.setFont(f)
@@ -123,13 +124,13 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ---- sidebar ----
+        # ---- sidebar (Linear/Notion style) ----
         side = QFrame()
         side.setObjectName("Sidebar")
-        side.setFixedWidth(232)
+        side.setFixedWidth(236)
         sl = QVBoxLayout(side)
-        sl.setContentsMargins(14, 18, 14, 16)
-        sl.setSpacing(4)
+        sl.setContentsMargins(12, 16, 12, 14)
+        sl.setSpacing(3)
 
         title = QLabel("🏠 KHO PHÒNG")
         title.setObjectName("AppTitle")
@@ -137,7 +138,11 @@ class MainWindow(QMainWindow):
         sub = QLabel("Quản lý kho căn hộ cho thuê")
         sub.setObjectName("AppSubtitle")
         sl.addWidget(sub)
-        sl.addSpacing(18)
+        sl.addSpacing(14)
+
+        sec1 = QLabel("ĐIỀU HƯỚNG")
+        sec1.setObjectName("NavSection")
+        sl.addWidget(sec1)
 
         self.nav_buttons: Dict[str, QPushButton] = {}
         for key, icon, label in NAV_ITEMS:
@@ -149,11 +154,9 @@ class MainWindow(QMainWindow):
             self.nav_buttons[key] = b
 
         sl.addSpacing(10)
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color:#E4E8F0;")
-        sl.addWidget(line)
-        sl.addSpacing(6)
+        sec2 = QLabel("DỮ LIỆU")
+        sec2.setObjectName("NavSection")
+        sl.addWidget(sec2)
 
         self.btn_import = QPushButton("📥  Nhập Excel")
         self.btn_import.setObjectName("NavButton")
@@ -172,12 +175,30 @@ class MainWindow(QMainWindow):
 
         sl.addStretch(1)
 
+        # ---- hàng dưới cùng: badge env + nút sáng/tối ----
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(8)
         self.sync_badge = QPushButton("☁️ Google: Tắt")
         self.sync_badge.setObjectName("Chip")
         self.sync_badge.setCursor(Qt.PointingHandCursor)
         self.sync_badge.setToolTip("Bấm để mở Cài đặt → Google")
         self.sync_badge.clicked.connect(self.open_settings)
-        sl.addWidget(self.sync_badge)
+        bottom_row.addWidget(self.sync_badge, 1)
+
+        self.btn_theme = QPushButton("🌙")
+        self.btn_theme.setObjectName("Ghost")
+        self.btn_theme.setFixedWidth(40)
+        self.btn_theme.setCursor(Qt.PointingHandCursor)
+        self.btn_theme.setToolTip("Đổi giao diện Sáng / Tối")
+        self.btn_theme.clicked.connect(self.toggle_theme)
+        bottom_row.addWidget(self.btn_theme)
+        sl.addLayout(bottom_row)
+
+        self.env_badge_lbl = QLabel(f"● {env_badge()}")
+        self.env_badge_lbl.setObjectName("MetaText")
+        self.env_badge_lbl.setStyleSheet(
+            f"color:{ENV_COLORS.get(APP_ENV, '#6B7280')}; background:transparent;")
+        sl.addWidget(self.env_badge_lbl)
 
         root.addWidget(side)
 
@@ -276,7 +297,7 @@ class MainWindow(QMainWindow):
         self.lbl_env.setAlignment(Qt.AlignCenter)
         self.lbl_env.setStyleSheet(
             f"background: {ENV_COLORS.get(APP_ENV, '#6B7280')}; color: white;"
-            "font-weight: 700; font-size: 11px; border-radius: 4px; padding: 0 8px;")
+            "font-weight: 700; font-size: 11px; border-radius: 10px; padding: 0 10px;")
         self.lbl_env.setToolTip(
             f"Môi trường hiện tại: {APP_ENV}\n"
             f"Dữ liệu: {DATA_DIR}\n\n"
@@ -442,6 +463,8 @@ class MainWindow(QMainWindow):
         dlg = SettingsDialog(self.mgr.settings, self)
 
         def on_saved(vals: Dict[str, Any]):
+            if "ui_theme" in vals:
+                self.apply_theme(str(vals.get("ui_theme") or "dark"))
             if "google_enabled" in vals and vals.get("google_enabled"):
                 n = self.mgr.enqueue_all_pending()
                 if self.worker:
@@ -454,6 +477,35 @@ class MainWindow(QMainWindow):
 
         dlg.saved.connect(on_saved)
         dlg.exec()
+
+    # ------------------------------------------------------------------ giao diện 2 chế độ
+    def toggle_theme(self):
+        theme.set_theme("light" if theme.get_theme() == "dark" else "dark")
+        self._apply_theme_now()
+
+    def apply_theme(self, name: str):
+        theme.set_theme(name)
+        self._apply_theme_now()
+
+    def _apply_theme_now(self):
+        """Đổi QSS toàn ứng dụng + repaint các widget vẽ tay (biểu đồ, chip, badge)."""
+        qapp = QApplication.instance()
+        if qapp:
+            qapp.setStyleSheet(theme.APP_QSS)
+        self.setStyleSheet(theme.APP_QSS)
+        # cập nhật nút chuyển giao diện
+        if hasattr(self, "btn_theme"):
+            self.btn_theme.setText("☀️" if theme.get_theme() == "dark" else "🌙")
+        # repaint toàn bộ để paintEvent dùng token mới
+        for w in self.findChildren(QWidget):
+            w.style().unpolish(w)
+            w.style().polish(w)
+            w.update()
+        self.refresh_all()
+        if hasattr(self.mgr, "settings"):
+            self.mgr.settings.set("ui_theme", theme.get_theme())
+        self.lbl_status.setText(
+            "Đã đổi giao diện: " + ("Tối 🌙" if theme.get_theme() == "dark" else "Sáng ☀️"))
 
     def refresh_all(self):
         self.page_dashboard.refresh()

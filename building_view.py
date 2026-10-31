@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 import text_utils as tu
 from google_drive import open_drive, open_phone, open_zalo
 from models import RoomFilter
+import theme
 from theme import C_ACCENT, C_BORDER, C_OK, C_ORANGE, C_WARN, C_DANGER, C_MUTED, \
     status_bg, status_color, status_label
 
@@ -272,7 +273,7 @@ class BuildingCard(QFrame):
         top = QHBoxLayout()
         top.setSpacing(10)
         code = QLabel(b.get('code', ''))
-        code.setStyleSheet(f"font-size:12px; font-weight:800; color:{C_ACCENT}; background:transparent;")
+        code.setStyleSheet(f"font-size:12px; font-weight:800; color:{theme.c('accent')}; background:transparent;")
         code.setFixedWidth(34)
         top.addWidget(code)
         addr = QLabel(f"<b style='font-size:15px'>{b.get('display', '')}</b>")
@@ -285,7 +286,7 @@ class BuildingCard(QFrame):
         owner = QLabel(f"👤 {b.get('owner_name') or '—'} &nbsp;·&nbsp; 📞 {b.get('phone') or '—'}")
         owner.setTextFormat(Qt.RichText)
         owner.setObjectName("Muted")
-        owner.setStyleSheet("background:transparent; font-size:12px; color:#6B7280;")
+        owner.setStyleSheet(f"background:transparent; font-size:12px; color:{theme.c('text2')};")
         owner.setWordWrap(True)
         lay.addWidget(owner)
 
@@ -297,7 +298,7 @@ class BuildingCard(QFrame):
         chips.addWidget(self._chip(f"Thuê {b.get('rooms_rented', 0)}", "rented"))
         chips.addWidget(self._chip(f"Sắp trống {b.get('rooms_soon', 0)}", "soon_vacant"))
         total = QLabel(f"Σ {b.get('rooms_total', 0)}")
-        total.setStyleSheet("background:transparent; color:#111827; font-weight:800; padding:4px 10px;")
+        total.setStyleSheet(f"background:transparent; color:{theme.c('text')}; font-weight:800; padding:4px 10px;")
         chips.addWidget(total)
         chips.addStretch(1)
         lay.addLayout(chips)
@@ -305,7 +306,7 @@ class BuildingCard(QFrame):
         meta = QLabel(f"⚡ {b.get('ev_policy') or '—'} &nbsp;·&nbsp; 🐾 {b.get('pet_policy') or '—'}")
         meta.setTextFormat(Qt.RichText)
         meta.setObjectName("Muted")
-        meta.setStyleSheet("background:transparent; font-size:11.5px; color:#6B7280;")
+        meta.setStyleSheet(f"background:transparent; font-size:11.5px; color:{theme.c('text2')};")
         meta.setWordWrap(True)
         lay.addWidget(meta)
 
@@ -343,8 +344,9 @@ class BuildingCard(QFrame):
         lay.addLayout(actions)
 
     def _chip(self, text: str, color_key: str) -> QLabel:
-        color = {"vacant": C_OK, "deposit": C_ORANGE, "holding": C_WARN,
-                 "rented": C_DANGER, "soon_vacant": C_WARN}.get(color_key, C_MUTED)
+        color = {"vacant": theme.c("ok"), "deposit": theme.c("orange"),
+                 "holding": theme.c("warn"), "rented": theme.c("danger"),
+                 "soon_vacant": theme.c("warn")}.get(color_key, theme.c("text2"))
         lbl = QLabel(text)
         lbl.setStyleSheet(
             f"background:{color}15; color:{color}; border-radius:20px; padding:4px 12px;"
@@ -399,7 +401,7 @@ class BuildingPage(QWidget):
         # subtitle
         sub = QLabel("Quản lý danh sách tòa nhà, chủ nhà và thông tin liên hệ")
         sub.setObjectName("PageHeaderSubtitle")
-        sub.setStyleSheet("color:#6B7280; font-size:12.5px; padding:0 22px 0 22px;")
+        sub.setStyleSheet(f"color:{theme.c('text2')}; font-size:12.5px; padding:0 22px 0 22px;")
         lay.addWidget(sub)
         lay.addSpacing(6)
 
@@ -517,8 +519,9 @@ class BuildingPage(QWidget):
                 header = QLabel(
                     f"📍 {g['title']}    ·    {n_b} tòa    ·    {n_rooms} phòng    ·    {n_vac} trống")
                 header.setStyleSheet(
-                    "background:#EFF6FF; color:#1D4ED8; font-weight:800; font-size:13.5px;"
-                    "border-left:4px solid #2563EB; border-radius:8px; padding:8px 12px;")
+                    f"background:{theme.c('accent_soft')}; color:{theme.c('accent_soft_text')};"
+                    f" font-weight:800; font-size:13.5px;"
+                    f"border-left:4px solid {theme.c('accent')}; border-radius:8px; padding:8px 12px;")
                 self.container_lay.addWidget(header)
 
                 # ---- PHÂN CỤM CẤP 2: PHƯỜNG (P.13, P.5, ...) - tự tạo từ dữ liệu ----
@@ -551,9 +554,10 @@ class BuildingPage(QWidget):
                             f"        🏷️ {wg['title']}   ·   {n_wb} tòa   ·   "
                             f"{n_wr} phòng   ·   {n_wv} trống")
                         sub.setStyleSheet(
-                            "background:#F8FAFC; color:#334155; font-weight:700; font-size:12.5px;"
-                            "border-left:3px solid #93C5FD; border-radius:6px; padding:6px 10px;"
-                            "margin-left:16px;")
+                            f"background:{theme.c('card2')}; color:{theme.c('text2')};"
+                            f" font-weight:700; font-size:12.5px;"
+                            f"border-left:3px solid {theme.c('text3')}; border-radius:6px;"
+                            " padding:6px 10px; margin-left:16px;")
                         self.container_lay.addWidget(sub)
 
                     wrap = QWidget()
@@ -587,8 +591,10 @@ class BuildingPage(QWidget):
                             f"{n_cr} phòng   ·   {n_cv} trống")
                         chead.setWordWrap(True)
                         chead.setStyleSheet(
-                            "background:#F0F9FF; color:#0369A1; font-weight:800; font-size:13px;"
-                            "border-left:4px solid #38BDF8; border-radius:8px; padding:8px 12px;")
+                            f"background:{theme.c('info_soft')}; color:{theme.c('info')};"
+                            f" font-weight:800; font-size:13px;"
+                            f"border-left:4px solid {theme.c('info')}; border-radius:8px;"
+                            " padding:8px 12px;")
                         self.container_lay.addWidget(chead)
                         for wk in chunk:
                             _ward_sub(wk)

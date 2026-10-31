@@ -23,6 +23,7 @@ import text_utils as tu
 from inventory_manager import DuplicateError
 from models import ROOM_TABLE_COLUMNS, ROOM_TYPES, RoomFilter, RoomStatus
 from theme import status_bg, status_color, status_label
+import theme
 from building_view import FlowLayout   # layout tự wrap - dùng cho toolbar responsive
 
 
@@ -241,7 +242,7 @@ class RoomPage(QWidget):
         # subtitle
         sub = QLabel("Tìm kiếm, lọc và cập nhật thông tin từng căn hộ")
         sub.setObjectName("PageHeaderSubtitle")
-        sub.setStyleSheet("color:#6B7280; font-size:12.5px; padding:0 22px 0 22px;")
+        sub.setStyleSheet(f"color:{theme.c('text2')}; font-size:12.5px; padding:0 22px 0 22px;")
         lay.addWidget(sub)
         lay.addSpacing(6)
 
@@ -457,7 +458,7 @@ class RoomPage(QWidget):
 
         # thông tin phòng
         inf = QLabel("THÔNG TIN")
-        inf.setStyleSheet("color:#9CA3AF; font-size:11px; font-weight:800; "
+        inf.setStyleSheet(f"color:{theme.c('text3')}; font-size:11px; font-weight:800; "
                           "background:transparent; letter-spacing:0.5px;")
         cl.addWidget(inf)
         self.d_info = QLabel("—")
@@ -468,7 +469,7 @@ class RoomPage(QWidget):
 
         # vị trí (tách riêng số nhà/đường/phường/quận + mã tòa)
         vt = QLabel("VỊ TRÍ")
-        vt.setStyleSheet("color:#9CA3AF; font-size:11px; font-weight:800; "
+        vt.setStyleSheet(f"color:{theme.c('text3')}; font-size:11px; font-weight:800; "
                          "background:transparent; letter-spacing:0.5px;")
         cl.addWidget(vt)
         self.d_addr = QLabel("—")
@@ -480,7 +481,7 @@ class RoomPage(QWidget):
         # meta (ID / cập nhật / phiên bản)
         self.d_meta = QLabel("")
         self.d_meta.setWordWrap(True)
-        self.d_meta.setStyleSheet("color:#9CA3AF; font-size:11px; font-weight:600; "
+        self.d_meta.setStyleSheet(f"color:{theme.c('text3')}; font-size:11px; font-weight:600; "
                                   "background:transparent; line-height:150%;")
         cl.addWidget(self.d_meta)
         cl.addStretch(1)
@@ -708,14 +709,16 @@ class RoomPage(QWidget):
         """Ô chỉ số nhỏ (Giá/Cọc/Diện tích). Trả về (frame, label_giá_trị)."""
         fx = QFrame()
         fx.setStyleSheet(
-            "QFrame { background:#F8FAFC; border:1px solid #E5E7EB; border-radius:10px; }")
+            f"QFrame {{ background:{theme.c('card2')};"
+            f" border:1px solid {theme.c('border')}; border-radius:10px; }}")
         v = QVBoxLayout(fx)
         v.setContentsMargins(10, 8, 10, 8)
         v.setSpacing(2)
         t = QLabel(title)
-        t.setStyleSheet("color:#6B7280; font-size:11px; font-weight:700; background:transparent; border:none;")
+        t.setStyleSheet(f"color:{theme.c('text2')}; font-size:11px; font-weight:700;"
+                        " background:transparent; border:none;")
         val = QLabel("—")
-        val.setStyleSheet("color:#2563EB; font-size:13.5px; font-weight:800; "
+        val.setStyleSheet(f"color:{theme.c('accent')}; font-size:13.5px; font-weight:800; "
                           "background:transparent; border:none;")
         val.setWordWrap(True)
         v.addWidget(t)
@@ -728,7 +731,8 @@ class RoomPage(QWidget):
         c.setAlignment(Qt.AlignCenter)
         c.setFixedHeight(24)
         c.setStyleSheet(
-            "background:#F0FDF4; color:#15803D; border:1px solid #BBF7D0;"
+            f"background:{theme.c('ok_soft')}; color:{theme.c('ok')};"
+            f" border:1px solid {theme.c('ok')}33;"
             "border-radius:12px; padding:2px 10px; font-size:11.5px; font-weight:700;")
         return c
 
@@ -737,7 +741,8 @@ class RoomPage(QWidget):
         self.d_code.setText("—")
         self.d_status.setText("●")
         self.d_status.setStyleSheet(
-            "background:#F3F4F6; color:#6B7280; border-radius:12px; padding:2px 12px; "
+            f"background:{theme.c('card2')}; color:{theme.c('text2')};"
+            f" border:1px solid {theme.c('border')}; border-radius:12px; padding:2px 12px; "
             "font-weight:800; font-size:12px;")
         self.d_sub.setText(msg)
         self.d_price_val.setText("—")
@@ -816,10 +821,10 @@ class RoomPage(QWidget):
         self.d_info.setText(
             "<div style='font-size:12.5px;'>"
             + "".join(f"<div style='margin:3px 0;'>"
-                      f"<span style='color:#6B7280; font-weight:700;'>{k}: </span>"
-                      f"<span style='color:#111827;'>{esc(v)}</span></div>"
+                      f"<span style='color:{theme.c('text2')}; font-weight:700;'>{k}: </span>"
+                      f"<span style='color:{theme.c('text')};'>{esc(v)}</span></div>"
                       for k, v in info_rows)
-            + (f"<div style='margin-top:6px; color:#EA580C; font-weight:700;'>"
+            + (f"<div style='margin-top:6px; color:{theme.c('orange')}; font-weight:700;'>"
                f"⚠ Thiếu số căn - cần xác minh khoá nhận diện</div>" if r.get("needs_verify") else "")
             + "</div>")
 
@@ -833,10 +838,10 @@ class RoomPage(QWidget):
         full = r.get("address") or ""
         self.d_addr.setText(
             "<div style='font-size:12.5px;'>"
-            f"<div style='margin-bottom:4px; color:#111827; font-weight:600;'>{esc(full)}</div>"
+            f"<div style='margin-bottom:4px; color:{theme.c('text')}; font-weight:600;'>{esc(full)}</div>"
             + "".join(f"<div style='margin:2px 0;'>"
-                      f"<span style='color:#6B7280; font-weight:700;'>{k}: </span>"
-                      f"<span style='color:#111827;'>{esc(v)}</span></div>"
+                      f"<span style='color:{theme.c('text2')}; font-weight:700;'>{k}: </span>"
+                      f"<span style='color:{theme.c('text')};'>{esc(v)}</span></div>"
                       for k, v in addr_rows)
             + "</div>")
 

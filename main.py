@@ -160,9 +160,12 @@ def main() -> int:
     from config import APP_ENV, env_badge, DATA_DIR
     log.info("Môi trường: %s (data: %s)", APP_ENV, DATA_DIR)
 
-    # splash nhanh (ứng dụng lớn -> có cảm giác mở tức thì)
+    # splash nhanh (ứng dụng lớn -> có cảm giác mở tức thì) - màu theo theme
+    import theme as theme_mod
+    _settings_pre = get_settings()
+    theme_mod.set_theme(str(_settings_pre.get("ui_theme", "dark")))
     pix = QPixmap(QSize(560, 300))
-    pix.fill(QColor("#2563EB"))
+    pix.fill(QColor(theme_mod.c("accent")))
     splash = QSplashScreen(pix)
     splash.showMessage("Đang tải dữ liệu kho phòng...",
                        int(Qt.AlignBottom | Qt.AlignHCenter), QColor("#FFFFFF"))
@@ -174,7 +177,7 @@ def main() -> int:
         from inventory_manager import InventoryManager
         from sync_queue import SyncWorker
         from main_window import MainWindow
-        from theme import APP_QSS
+        APP_QSS = theme_mod.APP_QSS
     except Exception:  # noqa: BLE001
         traceback.print_exc()
         try:
@@ -184,7 +187,7 @@ def main() -> int:
             pass
         return 1
 
-    settings = get_settings()
+    settings = _settings_pre
     if SELFTEST:
         # dùng DB tạm -> không đụng dữ liệu thật của người dùng
         import tempfile

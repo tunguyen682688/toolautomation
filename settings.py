@@ -11,10 +11,11 @@ from typing import Any, Dict, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QTabWidget,
     QTextEdit, QVBoxLayout, QWidget,
 )
+import theme
 
 
 class SettingsDialog(QDialog):
@@ -56,6 +57,14 @@ class SettingsDialog(QDialog):
         self.ed["user_name"] = QLineEdit(str(self.settings.get("user_name")))
         self.ed["user_name"].setPlaceholderText("Tên hiển thị khi ghi lịch sử thay đổi")
         form.addRow("Tên người dùng:", self.ed["user_name"])
+
+        # ---- giao diện 2 chế độ (áp dụng ngay khi lưu) ----
+        self.ed["ui_theme"] = QComboBox()
+        self.ed["ui_theme"].addItem("🌙 Tối (mặc định)", "dark")
+        self.ed["ui_theme"].addItem("☀️ Sáng", "light")
+        cur = str(self.settings.get("ui_theme", "dark"))
+        self.ed["ui_theme"].setCurrentIndex(1 if cur == "light" else 0)
+        form.addRow("Giao diện:", self.ed["ui_theme"])
 
         self.ed["page_size"] = QSpinBox()
         self.ed["page_size"].setRange(100, 20000)
@@ -147,7 +156,7 @@ class SettingsDialog(QDialog):
             "<b>Đi tab \"Hướng dẫn Google API\" để xem chi tiết + giới hạn quota.</b>")
         tips.setWordWrap(True)
         tips.setTextFormat(Qt.RichText)
-        tips.setStyleSheet("color:#475569;")
+        tips.setStyleSheet(f"color:{theme.c('text2')};")
         lay.addWidget(tips)
         lay.addStretch(1)
         return w
@@ -165,10 +174,10 @@ class SettingsDialog(QDialog):
     def _creds_status(self) -> str:
         p = str(self.ed["credentials_file"].text()).strip()
         if not p:
-            return "<span style='color:#64748B;'>Chưa chọn file - chế độ ngoại tuyến.</span>"
+            return f"<span style='color:{theme.c('text3')};'>Chưa chọn file - chế độ ngoại tuyến.</span>"
         if Path(p).expanduser().exists():
-            return "<span style='color:#16A34A;'>✓ File credentials tồn tại.</span>"
-        return f"<span style='color:#DC2626;'>✗ Không tìm thấy: {p}</span>"
+            return f"<span style='color:{theme.c('ok')};'>✓ File credentials tồn tại.</span>"
+        return f"<span style='color:{theme.c('danger')};'>✗ Không tìm thấy: {p}</span>"
 
     # ------------------------------------------------------------------ tab đồng bộ
     def _tab_sync(self) -> QWidget:
@@ -286,6 +295,8 @@ class SettingsDialog(QDialog):
                 vals[key] = w.isChecked()
             elif isinstance(w, QSpinBox):
                 vals[key] = int(w.value())
+            elif isinstance(w, QComboBox):
+                vals[key] = w.currentData()
         self.settings.update(vals)
         self.saved.emit(vals)
         self.accept()

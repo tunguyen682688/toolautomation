@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 import text_utils as tu
+import theme
 from inventory_manager import DuplicateError
 from models import ROOM_TYPES, RoomStatus
 from theme import C_ACCENT, C_ACCENT_HOVER, C_DANGER, C_OK, C_ORANGE, \
@@ -40,8 +41,13 @@ GROUP_TITLES = [
     "8. Ghi chú & trạng thái",
 ]
 
-# Màu đại diện cho mức độ nghi ngờ trùng
-SEVERITY_COLORS = {
+# Màu đại diện cho mức độ nghi ngờ trùng (gọi lúc dùng -> đúng chế độ giao diện hiện tại)
+def severity_color(level: str) -> str:
+    return {"block": theme.c("danger"), "warn": theme.c("orange"),
+            "info": theme.c("ok")}.get(level, theme.c("text2"))
+
+
+SEVERITY_COLORS = {  # giữ tên cũ cho tương thích (dùng lúc import -> chỉ đúng ở lần mở đầu)
     "block": C_DANGER,
     "warn": C_ORANGE,
     "info": C_OK,
@@ -139,7 +145,7 @@ class RoomEditForm(QDialog):
 
         icon = QLabel("＋" if self.is_new else "✎")
         icon.setStyleSheet(
-            f"font-size:22px; font-weight:800; color:{C_ACCENT}; background:transparent;")
+            f"font-size:22px; font-weight:800; color:{theme.c('accent')}; background:transparent;")
         hl.addWidget(icon)
 
         t = QLabel(self.windowTitle())
@@ -223,7 +229,8 @@ class RoomEditForm(QDialog):
 
         container = QWidget()
         container.setObjectName("Card")
-        container.setStyleSheet("QWidget#Card { background:#FFFFFF; border:none; border-radius:12px; }")
+        container.setStyleSheet(
+            f"QWidget#Card {{ background:{theme.c('card')}; border:none; border-radius:12px; }}")
         cl = QVBoxLayout(container)
         cl.setContentsMargins(10, 8, 10, 8)
         cl.setSpacing(10)
@@ -473,7 +480,7 @@ class RoomEditForm(QDialog):
             changed = True
         if changed:
             self.banner_label.setText(
-                f"<span style='color:{C_OK};'>✓ Đã tự điền thông tin từ tòa "
+                f"<span style='color:{theme.c('ok')};'>✓ Đã tự điền thông tin từ tòa "
                 f"<b>{b.get('display')}</b></span>")
             self.banner.show()
 
@@ -542,7 +549,7 @@ class RoomEditForm(QDialog):
         self._run_check()
         self.suggest_row_w.hide()
         self.banner_label.setText(
-            f"<span style='color:{C_OK};'>✓ Đã chọn tòa tồn tại "
+            f"<span style='color:{theme.c('ok')};'>✓ Đã chọn tòa tồn tại "
             f"<b>{b.get('display')}</b> - chỉ cần nhập thông tin phòng "
             f"(mã / số căn / giá).</span>")
         self.banner.show()
@@ -555,13 +562,13 @@ class RoomEditForm(QDialog):
         try:
             res = self.mgr.check_new(payload, exclude_id=self.room.get("id") or None)
         except Exception as e:  # noqa: BLE001
-            self.banner_label.setText(f"<span style='color:{C_DANGER};'>Lỗi kiểm tra: {e}</span>")
+            self.banner_label.setText(f"<span style='color:{theme.c('danger')};'>Lỗi kiểm tra: {e}</span>")
             self.banner.show()
             return
         self._last_check = {"room_exists": res.room_exists, "recommended": res.recommended}
         if res.room_exists:
             ex = res.existing_room or {}
-            color = C_DANGER
+            color = theme.c("danger")
             head = "⛔ PHÒNG NÀY ĐÃ TỒN TẠI"
             body = (f"{ex.get('room_code')} - {ex.get('address')} | "
                     f"trạng thái: {status_label(ex.get('status', ''))} | "
@@ -571,14 +578,14 @@ class RoomEditForm(QDialog):
             self.btn_open_dup.setVisible(True)
             self._dup_existing_id = ex.get("id")
         elif res.has_warn:
-            color = C_ORANGE
+            color = theme.c("orange")
             head = "⚠ NGHI NGỜ TRÙNG DỮ LIỆU"
             body = "<br>".join(f.message for f in res.findings if f.severity == "warn")
             self.btn_save.setEnabled(True)
             self.btn_open_dup.setVisible(False)
             self._dup_existing_id = None
         else:
-            color = C_OK
+            color = theme.c("ok")
             head = "✓ Không phát hiện trùng"
             info = [f.message for f in res.findings if f.kind in ("building_exists", "building_new")]
             body = info[0] if info else "Sẵn sàng lưu."
@@ -588,7 +595,7 @@ class RoomEditForm(QDialog):
 
         self.banner_label.setText(
             f"<b style='color:{color};'>{head}</b><br>"
-            f"<span style='color:#475569;'>{body}</span>")
+            f"<span style='color:{theme.c('text2')};'>{body}</span>")
         self.banner.show()
 
     def _open_suggested_duplicate(self):
@@ -638,7 +645,7 @@ class RoomEditForm(QDialog):
         self._maybe_autofill()
         self._run_check()
         self.banner_label.setText(
-            f"<span style='color:{C_OK};'>📋 Đã tách tin đăng vào form - "
+            f"<span style='color:{theme.c('ok')};'>📋 Đã tách tin đăng vào form - "
             f"kiểm tra lại giá & địa chỉ trước khi Lưu.</span>")
         self.banner.show()
 
@@ -685,7 +692,7 @@ class RoomEditForm(QDialog):
         if not isinstance(p, dict) or not any(str(v) for v in p.values()):
             return
         self.banner_label.setText(
-            "<span style='color:#64748B;'>📋 Phát hiện nháp nhập liệu chưa hoàn tất - "
+            f"<span style='color:{theme.c('text2')};'>📋 Phát hiện nháp nhập liệu chưa hoàn tất - "
             "đã tự điền vào form.</span>")
         self.banner.show()
         for k, v in p.items():
@@ -813,7 +820,7 @@ class RoomEditForm(QDialog):
             self.ed["drive_link"].clear()
             self.ed["notes"].clear()
             self.ed["room_code"].setFocus()
-            self.banner_label.setText(f"<span style='color:{C_OK};'>✓ Đã lưu phòng "
+            self.banner_label.setText(f"<span style='color:{theme.c('ok')};'>✓ Đã lưu phòng "
                                       f"<b>{payload.get('room_code') or payload.get('unit_code')}</b> "
                                       f"- tiếp tục nhập phòng kế.</span>")
             self.banner.show()
@@ -921,7 +928,7 @@ class PasteListingDialog(QDialog):
             return
         p = tu.parse_listing_text(text)
         self.parsed = p
-        acc = "#2563EB"
+        acc = theme.c("accent")
         rows = [
             ("Địa chỉ", " ".join(x for x in (p.get("house_number"), p.get("street")) if x)),
             ("Phường / Quận", " · ".join(x for x in (p.get("ward"), p.get("district")) if x)),
@@ -935,7 +942,7 @@ class PasteListingDialog(QDialog):
             ("SĐT", p.get("owner_phone")),
         ]
         html = "".join(
-            f"<tr><td style='color:#6B7280; font-weight:700; padding:1px 12px 1px 0;'>{k}</td>"
+            f"<tr><td style='color:{theme.c('text2')}; font-weight:700; padding:1px 12px 1px 0;'>{k}</td>"
             f"<td style='color:{acc}; font-weight:700;'>{v}</td></tr>"
             for k, v in rows if v)
         if html:
@@ -944,7 +951,7 @@ class PasteListingDialog(QDialog):
             self.btn_apply.setEnabled(True)
         else:
             self.prev_label.setText(
-                "<span style='color:#DC2626; font-weight:700;'>"
+                f"<span style='color:{theme.c('danger')}; font-weight:700;'>"
                 "Không tách được thông tin nào - kiểm tra lại tin đăng.</span>")
             self.btn_apply.setEnabled(False)
 

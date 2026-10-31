@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 import text_utils as tu
+import theme
 from excel_import import (KIND_COLOR, KIND_LABEL, ParsedFile, build_plan,
                           read_workbook, save_stats_formulas)
 from models import ROOM_COLUMNS
@@ -63,7 +64,7 @@ class MappingModel(QAbstractTableModel):
                 return self.label[name]
             if role == Qt.ForegroundRole and name in self.required and name not in self.mapping:
                 from PySide6.QtGui import QColor
-                return QColor("#DC2626")
+                return QColor(theme.c("danger"))
             return None
         if col == 1:
             if role == Qt.DisplayRole:
@@ -150,7 +151,8 @@ class PreviewModel(QAbstractTableModel):
         col = self.COLS[index.column()]
         if role == Qt.ForegroundRole and col == "Loại":
             from PySide6.QtGui import QColor
-            return QColor(KIND_COLOR.get(it.kind, "#000000"))
+            import theme as _th
+            return QColor(KIND_COLOR.get(it.kind, _th.c("text")))
         if role == Qt.BackgroundRole:
             from PySide6.QtGui import QColor
             alpha = {"new": 0x00, "duplicate": 0x00, "changed": 0x00,

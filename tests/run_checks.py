@@ -361,6 +361,58 @@ def main():
     check("Xóa mềm + khôi phục phòng", t17_soft_delete_restore)
     check("Xuất Excel đúng cấu trúc & đọc lại không sinh trùng", t18_excel_roundtrip)
 
+    # ---------------------------------------------------------------- yêu cầu khách
+    def t19_request_search():
+        """Tìm theo yêu cầu khách: parse giá/tiện ích/khu vực + 4 vòng mở rộng + tự nới lỏng."""
+        from request_parser import parse_request, search_tiers
+
+        # 1) parser: câu ví dụ kinh điển
+        req = parse_request(
+            "phong 7tr full noi that co thang may, gui xe, xung quanh P13 hay duong Binh Loi")
+        assert_true(req.price_min == 6_300_000 and req.price_max == 7_700_000,
+                    f"Sai tầm giá ±10%: {req.price_min}-{req.price_max}")
+        assert_true(req.ward_keys == ["13"], f"Sai phường: {req.ward_keys}")
+        assert_true("binh loi" in req.street_keys, f"Sai đường: {req.street_keys}")
+        assert_true(req.nearby, "Không nhận từ 'xung quanh'")
+        lab = " ".join(req.keywords_label)
+        for kw in ("Thang máy", "Nội thất", "Gửi xe"):
+            assert_true(kw in lab, f"Thiếu tiện ích {kw} trong: {lab}")
+
+        # 2) parser: khoảng giá / quận tên / số tiền cọc không lẫn vào giá phòng
+        r2 = parse_request("tim phong 6-8tr quan binh thanh, coc 2tr")
+        assert_true(r2.price_min == 6_000_000 and r2.price_max == 8_000_000,
+                    f"Sai khoảng 6-8tr: {r2.price_min}-{r2.price_max}")
+        assert_true("binh thanh" in r2.district_keys, f"Sai quận: {r2.district_keys}")
+
+        # 3) thêm phòng đúng yêu cầu khách vào P.13 / Bình Lợi -> phải nằm vòng "Đúng khu vực"
+        mgr.add_room(
+            {"house_number": "9", "street": "Đường Bình Lợi", "ward": "P.13",
+             "district": "Q. Bình Thạnh", "room_code": "RQ-01", "unit_code": "RQ-01",
+             "status": "vacant", "price": 7_000_000, "room_type": "Studio",
+             "notes": "Full nội thất, có thang máy, gửi xe"},
+            actor="t", force=True)
+        tiers = search_tiers(mgr, req)
+        assert_true(tiers, "Không có vòng kết quả nào")
+        t0 = next((t for t in tiers if t["key"] == 0), None)
+        assert_true(t0 and t0["total"] >= 1, "Thiếu vòng 'Đúng khu vực'")
+        assert_true("RQ-01" in [r["room_code"] for r in t0["rooms"]],
+                    "Phòng vừa thêm không nằm vòng 'Đúng khu vực'")
+        for t in tiers:
+            assert_true(t["filter"] is not None, f"Vòng {t['key']} thiếu RoomFilter")
+
+        # 4) tự nới lỏng: khách đòi thêm wifi + máy lạnh (kho không có) -> vẫn ra phòng + báo đã bỏ
+        req3 = parse_request(
+            "phong 7tr noi that thang may gui xe wifi may lanh xung quanh P13")
+        tiers3 = search_tiers(mgr, req3)
+        assert_true(tiers3, "Nới lỏng xong vẫn không có kết quả")
+        assert_true(any(t["key"] == 4 for t in tiers3),
+                    f"Không có thẻ gợi ý nới lỏng: {[t['key'] for t in tiers3]}")
+        rel = next(t for t in tiers3 if t["key"] == 4)
+        assert_true("Wifi" in rel["hint"] and "Máy lạnh" in rel["hint"],
+                    f"Gợi ý nới lỏng sai: {rel['hint']}")
+
+    check("Tìm theo yêu cầu khách: parse + 4 vòng mở rộng + tự nới lỏng", t19_request_search)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)

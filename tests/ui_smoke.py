@@ -212,6 +212,20 @@ def main() -> int:
         assert d3.tabs.count() == 4, "Thiếu tab trong Cài đặt"
         d3.deleteLater()
 
+        # ---- Tìm theo yêu cầu khách: nút 🎯 + dialog parse live + 4 vòng kết quả ----
+        assert hasattr(win.page_rooms, "btn_request"), "Thiếu nút 'Yêu cầu khách' trên trang Phòng"
+        from request_dialog import RequestDialog
+        import request_parser as rp
+        d4 = RequestDialog(mgr, win)
+        d4.ed.setText("phong 7tr full noi that thang may gui xe xung quanh P13")
+        d4.run_search()
+        app.processEvents()
+        assert d4.req is not None and d4.req.ward_keys == ["13"], "Dialog parse sai phường"
+        assert d4.body_lay.count() >= 1, "Dialog không có card kết quả nào"
+        assert any(t["total"] > 0 for t in rp.search_tiers(mgr, d4.req)), \
+            "Không tìm được phòng nào cho yêu cầu mẫu"
+        d4.deleteLater()
+
     check("Hộp thoại Nhập Excel / Xuất Excel / Cài đặt", dialogs)
 
     # ---------------------------------------------------------- đồng bộ

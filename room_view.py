@@ -427,6 +427,32 @@ class RoomPage(QWidget):
         self.cmb_d_status.currentIndexChanged.connect(self._quick_status)
         qs_row.addWidget(self.cmb_d_status, 1)
         phl.addLayout(qs_row)
+
+        # ---- sửa nhanh các trường khảo sát (Có / Không / Chưa biết) ----
+        qs_row2 = QHBoxLayout()
+        qs_row2.setSpacing(6)
+        lbl_qs2 = QLabel("Khảo sát:")
+        lbl_qs2.setObjectName("Muted")
+        qs_row2.addWidget(lbl_qs2)
+
+        self.survey_combos = {}
+        for key, label in (("surveyed", "Khảo sát"), ("ev_support", "Xe điện"),
+                           ("foreign_guest", "Khách NNGO"), ("pet_policy", "Pet")):
+            lbl = QLabel(label)
+            lbl.setObjectName("Muted")
+            lbl.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
+            qs_row2.addWidget(lbl)
+            cmb = QComboBox()
+            cmb.addItem("— Chưa biết —", None)
+            cmb.addItem("✅ Có", True)
+            cmb.addItem("❌ Không", False)
+            cmb.setFixedWidth(92)
+            cmb.setObjectName("Ghost")
+            cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
+            qs_row2.addWidget(cmb)
+            self.survey_combos[key] = cmb
+        qs_row2.addStretch(1)
+        phl.addLayout(qs_row2)
         dl.addWidget(phead)
 
         # ---------- NỘI DUNG CUỘN: chỉ số + chip + thông tin + vị trí ----------
@@ -780,6 +806,10 @@ class RoomPage(QWidget):
         self.cmb_d_status.setCurrentIndex(0)
         self.cmb_d_status.setEnabled(False)
         self.cmb_d_status.blockSignals(False)
+        for cmb in self.survey_combos.values():
+            cmb.blockSignals(True)
+            cmb.setCurrentIndex(0)
+            cmb.blockSignals(False)
 
     def _open_detail(self, rid: str):
         self._current_detail_id = rid
@@ -828,6 +858,9 @@ class RoomPage(QWidget):
         self.d_chip_pet.setVisible(bool(pet))
         if pet:
             self.d_chip_pet.setText(f"🐾 {pet}")
+
+        # ---- đồng bộ combo khảo sát (Có/Không/Chưa biết) ----
+        self._sync_survey_combos(r)
 
         # ---- thông tin phòng
         from html import escape
@@ -890,9 +923,11 @@ class RoomPage(QWidget):
             ("🗑  Xóa phòng", lambda: self._delete(rid)),
         ):
             b = QPushButton(label)
-            b.setMinimumHeight(40)
-            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            b.setMinimumHeight(30)
+            b.setMaximumHeight(34)
+            b.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
             b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet("font-size:12px; padding:4px 10px;")
             if label.startswith("✏️"):
                 b.setObjectName("Primary")
             elif label.startswith("🗑"):
@@ -923,10 +958,62 @@ class RoomPage(QWidget):
         self.refresh()
         self._open_detail(rid)
 
+    def _quick_survey(self, field: str):
+        """Đổi nhanh trường khảo sát (Có/Không/Chưa biết) ngay trong panel."""
+        rid = getattr(self, "_current_detail_id", "")
+        if not rid:
+            return
+        cmb = self.survey_combos.get(field)
+        if not cmb:
+            return
+        val = cmb.currentData()
+        r = self.mgr.room(rid) or {}
+        if not r:
+            return
+        # giá trị hiện tại
+        cur = r.get(field)
+        if field == "pet_policy":
+            # pet_policy lưu chuỗi "Cho nuôi"/"Không nuôi"/""
+            cur_norm = "Cho nuôi" if r.get("pet_ok") else ("Không nuôi" if cur else "")
+            new_val = "Cho nuôi" if val is True else ("Không nuôi" if val is False else "")
+            if new_val == cur_norm:
+                return
+            changes = {field: new_val}
+            note = f"Khảo sát nhanh {field} -> {new_val or 'chưa biết'}"
+        else:
+            # surveyed / ev_support / foreign_guest: None|0|1
+            cur_norm = bool(cur) if cur is not None else None
+            if bool(val) == cur_norm:
+                return
+            changes = {field: val}
+            note = f"Khảo sát nhanh {field} -> {'Có' if val is True else ('Không' if val is False else 'chưa biết')}"
+        try:
+            self.mgr.update_room(
+                rid, changes,
+                actor=self.mgr.settings.get("user_name") or "Admin",
+                note=note)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Không cập nhật được", str(e))
+            return
+        self.refresh()
+        self._open_detail(rid)
+
+    def _sync_survey_combos(self, r: Dict[str, Any]):
+        """Đặt lại combo khảo sát theo dữ liệu phòng (chặn signal)."""
+        for field, cmb in self.survey_combos.items():
+            cmb.blockSignals(True)
+            if field == "pet_policy":
+                pet = r.get("pet_policy") or ""
+                idx = 1 if pet == "Cho nuôi" else (2 if pet == "Không nuôi" else 0)
+            else:
+                v = r.get(field)
+                idx = 1 if v is True else (2 if v is False else 0)
+            cmb.setCurrentIndex(idx)
+            cmb.blockSignals(False)
+
     # ------------------------------------------------------------------ hành động
     def _toggle_detail(self, show: bool):
         """Ẩn/hiện panel chi tiết (responsive: nhường chỗ cho bảng khi cửa sổ hẹp)."""
-        self._detail_panel.setVisible(show)
 
     def _current_room_id(self) -> str:
         idx = self.table.currentIndex()

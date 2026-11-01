@@ -13,7 +13,7 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QFrame, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
+    QFrame, QGridLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
     QMenu, QMessageBox, QPushButton, QSizePolicy, QScrollArea, QSpinBox,
     QSplitter, QStyledItemDelegate, QStyleOptionViewItem, QTableView,
     QToolButton, QVBoxLayout, QWidget,
@@ -429,53 +429,28 @@ class RoomPage(QWidget):
         phl.addLayout(qs_row)
 
         # ---- sửa nhanh các trường khảo sát (Có / Không / Chưa biết) ----
-        # Sắp xếp thành 2 hàng để không bị dồn chật/cắt chữ
+        # Sắp xếp thành 2 hàng (QGridLayout): hàng 1 = Khảo sát/Xe điện/Khách NNGO,
+        # hàng 2 = Pet/Đánh giá. Mỗi ô = nhãn + combo, căn rõ ràng, không chồng chữ.
         qs_container = QWidget()
         qs_container.setStyleSheet("background:transparent;")
-        qs_vlay = QVBoxLayout(qs_container)
-        qs_vlay.setContentsMargins(0, 0, 0, 0)
-        qs_vlay.setSpacing(6)
+        qs_grid = QGridLayout(qs_container)
+        qs_grid.setContentsMargins(0, 0, 0, 0)
+        qs_grid.setHorizontalSpacing(14)
+        qs_grid.setVerticalSpacing(10)
 
         self.survey_combos = {}
-
-        # Hàng 1: Khảo sát / Xe điện / Khách NNGO
-        qs_row1 = QHBoxLayout()
-        qs_row1.setSpacing(10)
-        lbl_qs = QLabel("Khảo sát:")
-        lbl_qs.setObjectName("Muted")
-        qs_row1.addWidget(lbl_qs)
-        for key, label, is_rating in (
-            ("surveyed", "Khảo sát", False),
-            ("ev_support", "Xe điện", False),
-            ("foreign_guest", "Khách NNGO", False),
-        ):
-            lbl = QLabel(label)
+        items = [
+            (0, 0, "surveyed", "Khảo sát", False),
+            (0, 2, "ev_support", "Xe điện", False),
+            (0, 4, "foreign_guest", "Khách NNGO", False),
+            (1, 0, "pet_policy", "Pet", False),
+            (1, 2, "rating", "Đánh giá", True),
+        ]
+        for row, col, key, label, is_rating in items:
+            lbl = QLabel(label + ":")
             lbl.setObjectName("Muted")
             lbl.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
-            qs_row1.addWidget(lbl)
-            cmb = QComboBox()
-            cmb.addItem("— Chưa biết —", None)
-            cmb.addItem("✅ Có", True)
-            cmb.addItem("❌ Không", False)
-            cmb.setMinimumWidth(130)
-            cmb.setObjectName("Ghost")
-            cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
-            qs_row1.addWidget(cmb)
-            self.survey_combos[key] = cmb
-        qs_row1.addStretch(1)
-        qs_vlay.addLayout(qs_row1)
-
-        # Hàng 2: Pet / Đánh giá
-        qs_row2 = QHBoxLayout()
-        qs_row2.setSpacing(10)
-        for key, label, is_rating in (
-            ("pet_policy", "Pet", False),
-            ("rating", "Đánh giá", True),
-        ):
-            lbl = QLabel(label)
-            lbl.setObjectName("Muted")
-            lbl.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
-            qs_row2.addWidget(lbl)
+            qs_grid.addWidget(lbl, row, col)
             cmb = QComboBox()
             cmb.addItem("— Chưa biết —", None)
             if is_rating:
@@ -484,13 +459,11 @@ class RoomPage(QWidget):
             else:
                 cmb.addItem("✅ Có", True)
                 cmb.addItem("❌ Không", False)
-            cmb.setMinimumWidth(150 if is_rating else 130)
+            cmb.setMinimumWidth(170)
             cmb.setObjectName("Ghost")
             cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
-            qs_row2.addWidget(cmb)
+            qs_grid.addWidget(cmb, row, col + 1)
             self.survey_combos[key] = cmb
-        qs_row2.addStretch(1)
-        qs_vlay.addLayout(qs_row2)
 
         phl.addWidget(qs_container)
         dl.addWidget(phead)

@@ -430,7 +430,7 @@ class RoomPage(QWidget):
 
         # ---- sửa nhanh các trường khảo sát (Có / Không / Chưa biết) ----
         qs_row2 = QHBoxLayout()
-        qs_row2.setSpacing(6)
+        qs_row2.setSpacing(10)
         lbl_qs2 = QLabel("Khảo sát:")
         lbl_qs2.setObjectName("Muted")
         qs_row2.addWidget(lbl_qs2)
@@ -455,7 +455,8 @@ class RoomPage(QWidget):
             else:
                 cmb.addItem("✅ Có", True)
                 cmb.addItem("❌ Không", False)
-            cmb.setFixedWidth(100 if is_rating else 92)
+            # chiều rộng đủ dài cho text tiếng Việt dài nhất ("— Chưa biết —")
+            cmb.setMinimumWidth(150 if is_rating else 130)
             cmb.setObjectName("Ghost")
             cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
             qs_row2.addWidget(cmb)

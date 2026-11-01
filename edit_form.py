@@ -573,7 +573,13 @@ class RoomEditForm(QDialog):
             elif isinstance(w, QPlainTextEdit):
                 w.setPlainText(str(r.get("notes", "") or ""))
             elif isinstance(w, StarRating):
-                w.set_value(int(r.get("rating") or 0))
+                try:
+                    w.set_value(int(r.get("rating") or 0))
+                except (ValueError, TypeError):
+                    # rating cũ có thể là text như "⭐⭐⭐⭐..." -> đếm số sao
+                    txt = str(r.get("rating") or "")
+                    n = txt.count("★") + txt.count("⭐")
+                    w.set_value(min(5, max(0, n)))
         if isinstance(self.img_upload, ImageUpload) and r.get("id"):
             # ảnh đã lưu sẽ được nạp từ thư mục quy ước khi mở form chi tiết
             pass

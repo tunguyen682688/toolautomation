@@ -15,13 +15,26 @@ from typing import Any, Dict, Optional
 
 import json
 
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from PySide6.QtCore import QAbstractListModel, QModelIndex, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import (QColor, QFont, QPixmap, QStandardItem,
+                           QStandardItemModel)
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QFormLayout,
-    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QFileDialog, QFrame, QFormLayout, QGridLayout, QHBoxLayout, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton,
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget, QCompleter,
 )
+
+import media_manager as mm
+import text_utils as tu
+import theme
+from inventory_manager import DuplicateError
+from models import ROOM_TYPES, RoomStatus
+from theme import C_ACCENT, C_ACCENT_HOVER, C_DANGER, C_OK, C_ORANGE, \
+    status_color, status_label
 
 import text_utils as tu
 import theme
@@ -52,6 +65,138 @@ SEVERITY_COLORS = {  # giữ tên cũ cho tương thích (dùng lúc import -> c
     "warn": C_ORANGE,
     "info": C_OK,
 }
+
+
+# ------------------------------------------------------------------ widget chọn sao (1-5)
+class StarRating(QWidget):
+    """Chọn sao đánh giá 1-5 sao, bật/tắt bằng click."""
+
+    changed = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._value = 0
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        self._stars: List[QLabel] = []
+        for i in range(1, 6):
+            lbl = QLabel("☆")
+            lbl.setObjectName("Star")
+            lbl.setCursor(Qt.PointingHandCursor)
+            lbl.setFixedSize(22, 22)
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setStyleSheet("font-size:18px; color:#CBD5E1; background:transparent;")
+            lbl.mousePressEvent = lambda ev, n=i: self._set(n)
+            self._stars.append(lbl)
+            lay.addWidget(lbl)
+        lay.addStretch(1)
+        self._refresh()
+
+    def _set(self, n: int):
+        self._value = n if self._value != n else 0
+        self._refresh()
+        self.changed.emit(self._value)
+
+    def _refresh(self):
+        for i, lbl in enumerate(self._stars, 1):
+            lbl.setText("★" if i <= self._value else "☆")
+            lbl.setStyleSheet(
+                f"font-size:18px; color:{'#FBBF24' if i <= self._value else '#CBD5E1'};"
+                " background:transparent;")
+
+    def value(self) -> int:
+        return self._value
+
+    def set_value(self, n: int):
+        self._value = max(0, min(5, int(n or 0)))
+        self._refresh()
+
+
+# ------------------------------------------------------------------ widget upload ảnh trong form
+class ImageUpload(QWidget):
+    """Chọn ảnh phòng, hiển thị thumbnail."""
+
+    files_changed = Signal(list)
+
+    def __init__(self, manager, parent=None):
+        super().__init__(parent)
+        self.mgr = manager
+        self._paths: List[str] = []
+        self.setFixedHeight(110)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+
+        self.list = QListWidget()
+        self.list.setViewMode(QListWidget.IconMode)
+        self.list.setIconSize(QSize(72, 72))
+        self.list.setFixedHeight(96)
+        self.list.setSpacing(6)
+        self.list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._ctx)
+        lay.addWidget(self.list)
+
+        row = QHBoxLayout()
+        btn_add = QPushButton("＋ Thêm ảnh")
+        btn_add.setObjectName("Chip")
+        btn_add.setCursor(Qt.PointingHandCursor)
+        btn_add.clicked.connect(self._add)
+        row.addWidget(btn_add)
+        btn_clear = QPushButton("🗑 Xóa tất cả")
+        btn_clear.setObjectName("Danger")
+        btn_clear.setCursor(Qt.PointingHandCursor)
+        btn_clear.clicked.connect(self._clear)
+        row.addWidget(btn_clear)
+        row.addStretch(1)
+        lay.addLayout(row)
+
+    def _add(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Chọn ảnh phòng", "",
+            "Ảnh (*.jpg *.jpeg *.png *.webp *.bmp);;Tất cả file (*.*)")
+        self._paths.extend(files)
+        self._refresh()
+        self.files_changed.emit(self._paths)
+
+    def _clear(self):
+        self._paths.clear()
+        self.list.clear()
+
+    def _ctx(self, pos):
+        it = self.list.itemAt(pos)
+        if not it:
+            return
+        from PySide6.QtWidgets import QMenu
+        m = QMenu(self)
+        m.addAction("Xóa", lambda: self._remove(it))
+        m.exec(self.list.mapToGlobal(pos))
+
+    def _remove(self, it: QListWidgetItem):
+        p = it.data(Qt.UserRole)
+        if p in self._paths:
+            self._paths.remove(p)
+        self.list.takeItem(self.list.row(it))
+
+    def _refresh(self):
+        self.list.clear()
+        for p in self._paths:
+            it = QListWidgetItem(Path(p).name)
+            it.setData(Qt.UserRole, p)
+            pm = QPixmap(p)
+            if not pm.isNull():
+                pm = pm.scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                it.setIcon(QIcon(pm))
+            it.setSizeHint(QSize(80, 84))
+            self.list.addItem(it)
+
+    def paths(self) -> List[str]:
+        return list(self._paths)
+
+    def set_paths(self, paths: List[str]):
+        self._paths = list(paths)
+        self._refresh()
 
 
 # ------------------------------------------------------------------ model địa chỉ cho QCompleter
@@ -305,8 +450,8 @@ class RoomEditForm(QDialog):
         # ---------- nhóm 4: Tiện ích ----------
         def _g4(f):
             self.ed["capacity"] = self._line("Ví dụ: 2 Ng/2 Xe")
-            self.ed["ev_support"] = QCheckBox("⚡ Hỗ trợ sạc xe điện")
-            self.ed["foreign_guest"] = QCheckBox("🌏 Nhận khách nước ngoài")
+            self.ed["ev_support"] = self._tribune("⚡ Xe điện")
+            self.ed["foreign_guest"] = self._tribune("🌏 Khách nước ngoài")
             f.addWidget(QLabel("Tối đa (người/xe):"), 0, 0)
             f.addWidget(self.ed["capacity"], 0, 1)
             f.addWidget(self.ed["ev_support"], 1, 0, 1, 2)
@@ -336,14 +481,17 @@ class RoomEditForm(QDialog):
             f.addWidget(self.ed["zalo_group"], 1, 1)
         add_group(6, _g6)
 
-        # ---------- nhóm 7: Media ----------
+        # ---------- nhóm 7: Media & đánh giá ----------
         def _g7(f):
+            self.img_upload = ImageUpload(self.mgr)
+            self.ed["rating"] = StarRating()
             self.ed["drive_link"] = self._line("drive.google.com/folder/...")
-            self.ed["rating"] = self._line("Ví dụ: ⭐⭐⭐⭐ Ban công rộng")
-            f.addWidget(QLabel("Link Drive media:"), 0, 0)
-            f.addWidget(self.ed["drive_link"], 0, 1)
-            f.addWidget(QLabel("Đánh giá / độ đẹp:"), 1, 0)
-            f.addWidget(self.ed["rating"], 1, 1)
+            f.addWidget(QLabel("Ảnh phòng:"), 0, 0)
+            f.addWidget(self.img_upload, 0, 1)
+            f.addWidget(QLabel("Link Drive:"), 1, 0)
+            f.addWidget(self.ed["drive_link"], 1, 1)
+            f.addWidget(QLabel("Đánh giá:"), 2, 0)
+            f.addWidget(self.ed["rating"], 2, 1)
         add_group(7, _g7)
 
         # ---------- nhóm 8: Ghi chú & trạng thái ----------
@@ -368,6 +516,18 @@ class RoomEditForm(QDialog):
         ed = QLineEdit()
         ed.setPlaceholderText(placeholder)
         return ed
+
+    def _tribune(self, label: str) -> QComboBox:
+        """Combo 3 trạng thái: Chưa biết / Có / Không."""
+        cmb = QComboBox()
+        cmb.setEditable(False)
+        cmb.addItem("— Chưa biết —", None)
+        cmb.addItem("✅ Có", True)
+        cmb.addItem("❌ Không", False)
+        cmb.setMinimumWidth(120)
+        cmb.setObjectName("Ghost")
+        cmb.setToolTip(label)
+        return cmb
 
     # ------------------------------------------------------------------ nút điều khiển
     def _build_buttons(self):
@@ -412,6 +572,11 @@ class RoomEditForm(QDialog):
                     w.setChecked(bool(r.get("ev_support")))
             elif isinstance(w, QPlainTextEdit):
                 w.setPlainText(str(r.get("notes", "") or ""))
+            elif isinstance(w, StarRating):
+                w.set_value(int(r.get("rating") or 0))
+        if isinstance(self.img_upload, ImageUpload) and r.get("id"):
+            # ảnh đã lưu sẽ được nạp từ thư mục quy ước khi mở form chi tiết
+            pass
         if r.get("unit_code") == "" and r.get("room_code"):
             pass  # giữ trống - không tự đoán số căn
 
@@ -728,6 +893,8 @@ class RoomEditForm(QDialog):
                 return w.currentText().strip()
             if isinstance(w, QPlainTextEdit):
                 return w.toPlainText().strip()
+            if isinstance(w, StarRating):
+                return str(w.value())
             return ""
 
         pet_policy = self.ed["pet_policy"].currentText().strip()
@@ -736,6 +903,11 @@ class RoomEditForm(QDialog):
         if pet_note:
             notes = (notes + " | " if notes else "") + f"Chính sách: {pet_note}"
         status_key = self.ed["status"].currentData() or "new"
+
+        # tribune 3-state: None/True/False
+        ev = self.ed["ev_support"].currentData()
+        fg = self.ed["foreign_guest"].currentData()
+
         return {
             "house_number": txt("house_number"),
             "street": txt("street"),
@@ -748,14 +920,15 @@ class RoomEditForm(QDialog):
             "price": tu.normalize_price(txt("price")),
             "deposit": tu.normalize_price(txt("deposit")),
             "capacity": txt("capacity"),
-            "ev_support": 1 if self.ed["ev_support"].isChecked() else 0,
-            "foreign_guest": 1 if self.ed["foreign_guest"].isChecked() else 0,
+            "ev_support": 1 if ev is True else (0 if ev is False else 0),
+            "foreign_guest": 1 if fg is True else (0 if fg is False else 0),
             "area": txt("area"),
             "pet_policy": pet_policy,
             "rating": txt("rating"),
             "owner_phone": txt("owner_phone"),
             "zalo_group": txt("zalo_group"),
             "drive_link": txt("drive_link"),
+            "image_paths": ",".join(self.img_upload.paths()),
             "notes": notes,
             "status": status_key,
             "status_text": RoomStatus.label(status_key),

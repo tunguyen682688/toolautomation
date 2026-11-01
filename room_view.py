@@ -415,46 +415,40 @@ class RoomPage(QWidget):
         self.d_sub.setWordWrap(True)
         phl.addWidget(self.d_sub)
 
-        # đổi trạng thái nhanh (không cần vào form sửa)
-        qs_row = QHBoxLayout()
-        qs_row.setSpacing(8)
+        # ---- điều khiển nhanh trên 1 hàng ngang: đổi trạng thái + khảo sát ----
+        qs_all = QHBoxLayout()
+        qs_all.setSpacing(10)
+        qs_all.setContentsMargins(0, 0, 0, 0)
+
         lbl_qs = QLabel("Đổi trạng thái:")
         lbl_qs.setObjectName("Muted")
-        qs_row.addWidget(lbl_qs)
+        qs_all.addWidget(lbl_qs)
+
         self.cmb_d_status = QComboBox()
         for k in RoomStatus.ORDER:
             self.cmb_d_status.addItem(f"● {RoomStatus.label(k)}", k)
         self.cmb_d_status.currentIndexChanged.connect(self._quick_status)
-        qs_row.addWidget(self.cmb_d_status, 1)
-        phl.addLayout(qs_row)
+        qs_all.addWidget(self.cmb_d_status)
 
-        # ---- sửa nhanh các trường khảo sát (Có / Không / Chưa biết) ----
-        # QGridLayout chuẩn form: cột label (chẵn) căn phải cố định, cột combo (lẻ) co giãn.
-        qs_container = QWidget()
-        qs_container.setStyleSheet("background:transparent;")
-        qs_grid = QGridLayout(qs_container)
-        qs_grid.setContentsMargins(0, 0, 0, 0)
-        qs_grid.setHorizontalSpacing(12)
-        qs_grid.setVerticalSpacing(10)
-        # cột combo (lẻ) co giãn để chứa chữ tiếng Việt dài
-        qs_grid.setColumnStretch(1, 1)
-        qs_grid.setColumnStretch(3, 1)
-        qs_grid.setColumnStretch(5, 1)
+        qs_all.addSpacing(12)
+
+        lbl_survey = QLabel("Khảo sát:")
+        lbl_survey.setObjectName("Muted")
+        qs_all.addWidget(lbl_survey)
 
         self.survey_combos = {}
-        items = [
-            (0, 0, "surveyed", "Khảo sát", False),
-            (0, 2, "ev_support", "Xe điện", False),
-            (0, 4, "foreign_guest", "Khách NNGO", False),
-            (1, 0, "pet_policy", "Pet", False),
-            (1, 2, "rating", "Đánh giá", True),
+        survey_items = [
+            ("surveyed", "Khảo sát", False),
+            ("ev_support", "Xe điện", False),
+            ("foreign_guest", "Khách NNGO", False),
+            ("pet_policy", "Pet", False),
+            ("rating", "Đánh giá", True),
         ]
-        for row, col, key, label, is_rating in items:
-            lbl = QLabel(label + ":")
+        for key, label, is_rating in survey_items:
+            lbl = QLabel(label)
             lbl.setObjectName("Muted")
-            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             lbl.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
-            qs_grid.addWidget(lbl, row, col)
+            qs_all.addWidget(lbl)
             cmb = QComboBox()
             cmb.addItem("— Chưa biết —", None)
             if is_rating:
@@ -463,13 +457,14 @@ class RoomPage(QWidget):
             else:
                 cmb.addItem("✅ Có", True)
                 cmb.addItem("❌ Không", False)
-            cmb.setMinimumWidth(160)
+            cmb.setMinimumWidth(115)
             cmb.setObjectName("Ghost")
             cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
-            qs_grid.addWidget(cmb, row, col + 1)
+            qs_all.addWidget(cmb)
             self.survey_combos[key] = cmb
 
-        phl.addWidget(qs_container)
+        qs_all.addStretch(1)
+        phl.addLayout(qs_all)
         dl.addWidget(phead)
 
         # ---------- NỘI DUNG CUỘN: chỉ số + chip + thông tin + vị trí ----------

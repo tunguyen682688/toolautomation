@@ -436,17 +436,26 @@ class RoomPage(QWidget):
         qs_row2.addWidget(lbl_qs2)
 
         self.survey_combos = {}
-        for key, label in (("surveyed", "Khảo sát"), ("ev_support", "Xe điện"),
-                           ("foreign_guest", "Khách NNGO"), ("pet_policy", "Pet")):
+        for key, label, is_rating in (
+            ("surveyed", "Khảo sát", False),
+            ("ev_support", "Xe điện", False),
+            ("foreign_guest", "Khách NNGO", False),
+            ("pet_policy", "Pet", False),
+            ("rating", "Đánh giá", True),
+        ):
             lbl = QLabel(label)
             lbl.setObjectName("Muted")
             lbl.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
             qs_row2.addWidget(lbl)
             cmb = QComboBox()
             cmb.addItem("— Chưa biết —", None)
-            cmb.addItem("✅ Có", True)
-            cmb.addItem("❌ Không", False)
-            cmb.setFixedWidth(92)
+            if is_rating:
+                for stars in range(1, 6):
+                    cmb.addItem("★" * stars + f" ({stars} sao)", stars)
+            else:
+                cmb.addItem("✅ Có", True)
+                cmb.addItem("❌ Không", False)
+            cmb.setFixedWidth(100 if is_rating else 92)
             cmb.setObjectName("Ghost")
             cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
             qs_row2.addWidget(cmb)
@@ -530,9 +539,9 @@ class RoomPage(QWidget):
         dl.addWidget(scroll, 1)
 
         # ---------- NÚT HÀNH ĐỘNG (cố định dưới) ----------
-        self.detail_actions = QVBoxLayout()
+        self.detail_actions = QHBoxLayout()
         self.detail_actions.setContentsMargins(20, 8, 20, 16)
-        self.detail_actions.setSpacing(8)
+        self.detail_actions.setSpacing(6)
         dl.addLayout(self.detail_actions)
         split.addWidget(detail)
         split.setStretchFactor(0, 1)
@@ -911,31 +920,28 @@ class RoomPage(QWidget):
         self.cover.set_room(r)
         self.media_panel.set_room(r)
 
-        # nút hành động: ĐỀU NHAU full-width (Sửa - Primary, còn lại DetailAction, Xóa - Danger)
+        # nút hành động: hàng ngang, chỉ icon + tooltip (Sửa - Primary, Xóa - Danger, còn lại DetailAction)
         bid = r.get("building_id", "")
-        for label, slot in (
-            ("✏️  Sửa chi tiết", lambda: self._edit_room(rid)),
-            ("🏢  Xem tòa nhà", lambda: self.open_building.emit(bid)),
-            ("📞  Gọi chủ nhà", lambda: self._call(rid)),
-            ("💬  Mở Zalo", lambda: self._zalo(rid)),
-            ("📁  Mở Drive", lambda: self._drive(rid)),
-            ("🕘  Lịch sử trạng thái", lambda: self._history(rid)),
-            ("🗑  Xóa phòng", lambda: self._delete(rid)),
-        ):
-            b = QPushButton(label)
-            b.setMinimumHeight(30)
-            b.setMaximumHeight(34)
-            b.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        btn_defs = [
+            ("✏️", "Sửa chi tiết phòng", "Primary", lambda: self._edit_room(rid)),
+            ("🏢", "Xem chi tiết tòa nhà", "DetailAction", lambda: self.open_building.emit(bid)),
+            ("📞", "Gọi điện chủ nhà", "DetailAction", lambda: self._call(rid)),
+            ("💬", "Mở nhóm Zalo chủ nhà", "DetailAction", lambda: self._zalo(rid)),
+            ("📁", "Mở Google Drive", "DetailAction", lambda: self._drive(rid)),
+            ("🕘", "Xem lịch sử trạng thái", "DetailAction", lambda: self._history(rid)),
+            ("🗑", "Xóa phòng (thùng rác)", "Danger", lambda: self._delete(rid)),
+        ]
+        for icon, tooltip, objname, slot in btn_defs:
+            b = QToolButton()
+            b.setText(icon)
+            b.setToolTip(tooltip)
+            b.setObjectName(objname)
             b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet("font-size:12px; padding:4px 10px;")
-            if label.startswith("✏️"):
-                b.setObjectName("Primary")
-            elif label.startswith("🗑"):
-                b.setObjectName("Danger")
-            else:
-                b.setObjectName("DetailAction")
+            b.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            b.setFixedSize(44, 44)
             b.clicked.connect(slot)
             self.detail_actions.addWidget(b)
+        self.detail_actions.addStretch(1)
 
     def _quick_status(self, *_):
         """Đổi trạng thái nhanh ngay trong panel (không cần mở form)."""
@@ -987,6 +993,22 @@ class RoomPage(QWidget):
                 return
             changes = {field: val}
             note = f"Khảo sát nhanh {field} -> {'Có' if val is True else ('Không' if val is False else 'chưa biết')}"
+        if field == "rating":
+            try:
+                cur_val = int(r.get("rating") or 0)
+            except (TypeError, ValueError):
+                cur_val = 0
+            if val is None:
+                new_val = None
+            else:
+                try:
+                    new_val = int(val)
+                except (TypeError, ValueError):
+                    new_val = None
+            if new_val == cur_val:
+                return
+            changes = {"rating": new_val}
+            note = f"Khảo sát nhanh đánh giá -> {new_val if new_val else 'chưa biết'} sao"
         try:
             self.mgr.update_room(
                 rid, changes,
@@ -1005,6 +1027,12 @@ class RoomPage(QWidget):
             if field == "pet_policy":
                 pet = r.get("pet_policy") or ""
                 idx = 1 if pet == "Cho nuôi" else (2 if pet == "Không nuôi" else 0)
+            elif field == "rating":
+                try:
+                    val = int(r.get("rating") or 0)
+                except (TypeError, ValueError):
+                    val = 0
+                idx = val + 1 if 1 <= val <= 5 else 0
             else:
                 v = r.get(field)
                 idx = 1 if v is True else (2 if v is False else 0)

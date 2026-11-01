@@ -429,14 +429,17 @@ class RoomPage(QWidget):
         phl.addLayout(qs_row)
 
         # ---- sửa nhanh các trường khảo sát (Có / Không / Chưa biết) ----
-        # Sắp xếp thành 2 hàng (QGridLayout): hàng 1 = Khảo sát/Xe điện/Khách NNGO,
-        # hàng 2 = Pet/Đánh giá. Mỗi ô = nhãn + combo, căn rõ ràng, không chồng chữ.
+        # QGridLayout chuẩn form: cột label (chẵn) căn phải cố định, cột combo (lẻ) co giãn.
         qs_container = QWidget()
         qs_container.setStyleSheet("background:transparent;")
         qs_grid = QGridLayout(qs_container)
         qs_grid.setContentsMargins(0, 0, 0, 0)
-        qs_grid.setHorizontalSpacing(14)
+        qs_grid.setHorizontalSpacing(12)
         qs_grid.setVerticalSpacing(10)
+        # cột combo (lẻ) co giãn để chứa chữ tiếng Việt dài
+        qs_grid.setColumnStretch(1, 1)
+        qs_grid.setColumnStretch(3, 1)
+        qs_grid.setColumnStretch(5, 1)
 
         self.survey_combos = {}
         items = [
@@ -449,6 +452,7 @@ class RoomPage(QWidget):
         for row, col, key, label, is_rating in items:
             lbl = QLabel(label + ":")
             lbl.setObjectName("Muted")
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             lbl.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
             qs_grid.addWidget(lbl, row, col)
             cmb = QComboBox()
@@ -459,7 +463,7 @@ class RoomPage(QWidget):
             else:
                 cmb.addItem("✅ Có", True)
                 cmb.addItem("❌ Không", False)
-            cmb.setMinimumWidth(170)
+            cmb.setMinimumWidth(160)
             cmb.setObjectName("Ghost")
             cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
             qs_grid.addWidget(cmb, row, col + 1)

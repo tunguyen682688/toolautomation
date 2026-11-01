@@ -211,7 +211,7 @@ def main() -> int:
 
     win = MainWindow(mgr, worker)
     win.setStyleSheet(APP_QSS)
-    win.show()
+    win.showMaximized()                            # mở full màn hình từ đầu
     splash.finish(win)
 
     stats = mgr.stats()

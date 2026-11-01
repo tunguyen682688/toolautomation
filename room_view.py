@@ -201,16 +201,13 @@ class RoomPage(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
+        # ---- hàng nút thao tác (tiêu đề trang đã có trên TopBar - không lặp lại) ----
         head = QFrame()
         head.setObjectName("Card")
         head.setStyleSheet("QFrame#Card { background: transparent; border: none; border-radius: 0; }")
         hl = QHBoxLayout(head)
-        hl.setContentsMargins(22, 16, 22, 16)
+        hl.setContentsMargins(22, 8, 22, 6)
         hl.setSpacing(0)
-
-        self.lbl_title = QLabel("Danh sách phòng")
-        self.lbl_title.setObjectName("PageHeaderTitle")
-        hl.addWidget(self.lbl_title)
         hl.addStretch(1)
 
         self.btn_undo = QPushButton("↩ Hoàn tác (Ctrl+Z)")
@@ -239,13 +236,6 @@ class RoomPage(QWidget):
         self.btn_toggle_detail.toggled.connect(self._toggle_detail)
         hl.addWidget(self.btn_toggle_detail)
         lay.addWidget(head)
-
-        # subtitle
-        sub = QLabel("Tìm kiếm, lọc và cập nhật thông tin từng căn hộ")
-        sub.setObjectName("PageHeaderSubtitle")
-        sub.setStyleSheet(f"color:{theme.c('text2')}; font-size:12.5px; padding:0 22px 0 22px;")
-        lay.addWidget(sub)
-        lay.addSpacing(6)
 
         # ============================ BỘ LỌC (2 hàng, không bị tràn) ============================
         bar = QFrame()
@@ -514,7 +504,13 @@ class RoomPage(QWidget):
         split.setStretchFactor(1, 0)
         self._splitter = split          # dùng cho ẩn/hiện panel (responsive)
         self._detail_panel = detail
-        lay.addWidget(split, 1)
+        # vùng bảng lọt trong khung padding - không dính mép cửa sổ (khớp toolbar 22px)
+        body = QWidget()
+        body.setStyleSheet("background:transparent;")
+        blay = QVBoxLayout(body)
+        blay.setContentsMargins(22, 6, 22, 12)
+        blay.addWidget(split)
+        lay.addWidget(body, 1)
 
         self.table.selectionModel().currentRowChanged.connect(
             lambda cur, prev: self._open_detail(self.model.room_id_at(cur.row()) if cur.isValid() else ""))
@@ -698,7 +694,6 @@ class RoomPage(QWidget):
         self.model.set_query(getattr(self, "_text", ""), self._filter)
         n = self.model.rowCount()
         self.lbl_count.setText(f"{n} phòng" + (f" · «{self._title}»" if self._title != "Tất cả phòng" else ""))
-        self.lbl_title.setText(self._title if self._title != "Tất cả phòng" else "Danh sách phòng")
 
     def reset_filters(self):
         self._filter = RoomFilter()

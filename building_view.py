@@ -626,8 +626,13 @@ class BuildingPage(QWidget):
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 0)
         split.setSizes([760, 360])
-
-        lay.addWidget(split, 1)
+        # vùng lưới thẻ lọt trong khung padding - không dính mép cửa sổ (khớp toolbar 22px)
+        body = QWidget()
+        body.setStyleSheet("background:transparent;")
+        blay = QVBoxLayout(body)
+        blay.setContentsMargins(22, 4, 22, 12)
+        blay.addWidget(split)
+        lay.addWidget(body, 1)
 
     # ------------------------------------------------------------------ header nhóm
     def _section_header(self, title: str, meta: str, level: int = 1) -> QWidget:

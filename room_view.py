@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 import text_utils as tu
 from inventory_manager import DuplicateError
+from media_panel import MediaPanel
 from models import ROOM_TABLE_COLUMNS, ROOM_TYPES, RoomFilter, RoomStatus
 from theme import status_bg, status_color, status_label
 import theme
@@ -466,6 +467,11 @@ class RoomPage(QWidget):
         crow.addStretch(1)
         cl.addLayout(crow)
 
+        # ---- ẢNH / VIDEO: quản lý file cục bộ theo thư mục quy ước
+        #      Data Image/<Quận>/<Đường>/<số nhà>-<mã phòng>/<loại> <giá>tr ----
+        self.media_panel = MediaPanel(self.mgr)
+        cl.addWidget(self.media_panel)
+
         # thông tin phòng
         inf = QLabel("THÔNG TIN")
         inf.setStyleSheet(f"color:{theme.c('text3')}; font-size:11px; font-weight:800; "
@@ -763,6 +769,7 @@ class RoomPage(QWidget):
         self.d_info.setText("—")
         self.d_addr.setText("—")
         self.d_meta.setText("")
+        self.media_panel.set_room(None)
         self.cmb_d_status.blockSignals(True)
         self.cmb_d_status.setCurrentIndex(0)
         self.cmb_d_status.setEnabled(False)
@@ -860,6 +867,9 @@ class RoomPage(QWidget):
             f"ID: {r.get('id')}\n"
             f"Cập nhật: {r.get('updated_at')} bởi {r.get('updated_by')}\n"
             f"Phiên bản: v{r.get('version')} · Đồng bộ: {r.get('sync_state')}")
+
+        # ---- Ảnh / Video của phòng (đọc từ thư mục quy ước)
+        self.media_panel.set_room(r)
 
         # nút hành động: ĐỀU NHAU full-width (Sửa - Primary, còn lại DetailAction, Xóa - Danger)
         bid = r.get("building_id", "")

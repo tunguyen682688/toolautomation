@@ -413,6 +413,52 @@ def main():
 
     check("Tìm theo yêu cầu khách: parse + 4 vòng mở rộng + tự nới lỏng", t19_request_search)
 
+    def t20_media():
+        """Ảnh/video phòng: thư mục quy ước + import + trùng + thùng rác."""
+        import media_manager as mm
+        old_root = settings.get("media_root")
+        settings.set("media_root", str(tmp / "media"), save=False)
+        try:
+            # 1) quy ước đường dẫn đúng như ví dụ
+            probe = {"house_number": "5", "room_code": "102-4", "room_type": "Studio",
+                     "price": 8_000_000, "district": "Q. Bình Thạnh", "street": "Nơ Trang Long"}
+            d = mm.room_media_dir(probe, settings)
+            expect = tmp / "media" / "Bình Thạnh" / "Nơ Trang Long" / "5-102-4" / "studio 8tr"
+            assert_true(d == expect, f"Sai quy ước thư mục: {d} != {expect}")
+
+            # 2) thêm phòng thật -> import file -> tự tạo thư mục quy ước
+            rid = mgr.add_room(
+                {"house_number": "5", "street": "Nơ Trang Long", "ward": "P.13",
+                 "district": "Q. Bình Thạnh", "room_code": "102-4", "unit_code": "102-4",
+                 "status": "vacant", "price": 8_000_000, "room_type": "Studio"},
+                actor="t", force=True)["id"]
+            r = mgr.room(rid)
+            src = tmp / "anh_goc.jpg"
+            src.write_bytes(b"\xff\xd8fakejpeg")
+            res = mm.import_files(r, [str(src)], settings)
+            assert_true(len(res["copied"]) == 1 and not res["errors"], f"Import lỗi: {res}")
+            d2 = mm.ensure_room_dir(r, settings)
+            assert_true(d2.is_dir(), "Không tạo được thư mục quy ước")
+
+            # 3) liệt kê: ảnh nhận diện đúng loại
+            med = mm.list_media(r, settings)
+            assert_true(len(med) == 1 and med[0]["kind"] == "image", f"Liệt kê sai: {med}")
+
+            # 4) import lại cùng file -> bỏ qua (trùng tên trùng dung lượng)
+            res2 = mm.import_files(r, [str(src)], settings)
+            assert_true(len(res2["skipped"]) == 1 and not res2["copied"],
+                        f"Import lại không nhận ra trùng: {res2}")
+
+            # 5) xóa = chuyển vào _ThungRac
+            moved = mm.move_to_trash([med[0]["path"]], settings)
+            assert_true(len(moved) == 1 and "_ThungRac" in moved[0], f"Thùng rác sai: {moved}")
+            assert_true(mm.list_media(r, settings) == [], "Vẫn còn file sau khi bỏ vào thùng rác")
+            print(f"    -> thư mục quy ước: {d2}")
+        finally:
+            settings.set("media_root", old_root, save=False)
+
+    check("Ảnh/video phòng: thư mục quy ước + import + chống trùng + thùng rác", t20_media)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)

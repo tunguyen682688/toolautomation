@@ -7,6 +7,8 @@ venv/
 
 # --- Dữ liệu nội bộ (KHÔNG chia sẻ) ---
 data/
+Data Image/
+_ThungRac/
 *.db
 *.db-wal
 *.db-shm

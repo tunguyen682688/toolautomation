@@ -122,6 +122,7 @@ DEFAULTS: Dict[str, Any] = {
     "last_export_dir": "",
     # --- đường dẫn ---
     "db_path": str(DB_FILE),
+    "media_root": "Data Image",       # gốc thư mục ảnh/video phòng (tương đối -> cạnh app)
 }
 
 

@@ -49,8 +49,10 @@ def main() -> int:
     settings = get_settings()
     tmp = Path(tempfile.mkdtemp(prefix="kho_ui_"))
     old_db, old_g = settings.get("db_path"), settings.get("google_enabled")
+    old_media = settings.get("media_root")
     settings.set("db_path", str(tmp / "ui.db"), save=False)
     settings.set("google_enabled", False, save=False)
+    settings.set("media_root", str(tmp / "media"), save=False)   # media quy ước -> thư mục tạm
     settings.save()
 
     app = QApplication.instance() or QApplication(sys.argv)
@@ -169,6 +171,13 @@ def main() -> int:
         assert win.page_rooms.d_code.text() == mgr.room(rid)["room_code"]
         assert mgr.room(rid)["room_code"] in win.page_rooms.d_info.text() or \
             "Số căn" in win.page_rooms.d_info.text()
+        # khu Ảnh/Video: có đường dẫn quy ước + danh sách trống (DB tạm chưa có media)
+        import media_manager as mm
+        mp = win.page_rooms.media_panel
+        expect = mm.room_media_dir(mgr.room(rid), settings)
+        assert mp.ed_path.text() == str(expect), \
+            f"Sai đường dẫn quy ước media: {mp.ed_path.text()} != {expect}"
+        assert mp.list.count() == 0 and mp.lbl_empty.isVisibleTo(mp), "MediaPanel trạng thái rỗng sai"
 
     check("Bảng phòng: ảo hoá + tìm không dấu + lọc + đổi trạng thái giữ ID", room_table)
 
@@ -242,6 +251,7 @@ def main() -> int:
     # restore
     settings.set("db_path", old_db, save=False)
     settings.set("google_enabled", old_g, save=False)
+    settings.set("media_root", old_media, save=False)
     settings.save()
     db.close()
 

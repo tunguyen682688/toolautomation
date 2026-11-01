@@ -84,6 +84,20 @@ class SettingsDialog(QDialog):
         db_path.setToolTip("File dữ liệu cục bộ (SQLite) - không chỉnh tay.")
         form.addRow("File dữ liệu:", db_path)
 
+        # ---- thư mục ảnh/video phòng (quy ước Data Image/<Quận>/<Đường>/<số>-<mã>/<loại> <giá>tr) ----
+        mrow = QHBoxLayout()
+        self.ed["media_root"] = QLineEdit(str(self.settings.get("media_root") or "Data Image"))
+        self.ed["media_root"].setPlaceholderText("Data Image  (hoặc đường dẫn tuyệt đối D:\\Media\\Data Image)")
+        self.ed["media_root"].setToolTip(
+            "Gốc thư mục lưu ảnh/video phòng.\nQuy ước: <gốc>/<Quận>/<Đường>/<số nhà>-<mã phòng>/<loại phòng> <giá>tr\n"
+            "VD: Data Image/Bình Thạnh/Nơ Trang Long/5-102-4/studio 8tr\n"
+            "Đường dẫn tương đối được tính cạnh thư mục chạy app.")
+        btn_mroot = QPushButton("Chọn...")
+        btn_mroot.clicked.connect(self._pick_media_root)
+        mrow.addWidget(self.ed["media_root"], 1)
+        mrow.addWidget(btn_mroot)
+        form.addRow("Thư mục ảnh/video:", mrow)
+
         from config import APP_ENV, env_badge, DATA_DIR, SETTINGS_FILE
         env_row = QLineEdit(f"{env_badge()}  ·  data: {DATA_DIR}  ·  config: {SETTINGS_FILE}")
         env_row.setReadOnly(True)
@@ -170,6 +184,12 @@ class SettingsDialog(QDialog):
         if path:
             self.ed["credentials_file"].setText(path)
             self.lbl_creds_status.setText(self._creds_status())
+
+    def _pick_media_root(self):
+        start = str(self.ed["media_root"].text()) or str(Path.cwd())
+        d = QFileDialog.getExistingDirectory(self, "Chọn thư mục gốc ảnh/video", start)
+        if d:
+            self.ed["media_root"].setText(d)
 
     def _creds_status(self) -> str:
         p = str(self.ed["credentials_file"].text()).strip()

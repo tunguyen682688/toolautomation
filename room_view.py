@@ -415,40 +415,72 @@ class RoomPage(QWidget):
         self.d_sub.setWordWrap(True)
         phl.addWidget(self.d_sub)
 
-        # ---- điều khiển nhanh trên 1 hàng ngang: đổi trạng thái + khảo sát ----
-        qs_all = QHBoxLayout()
-        qs_all.setSpacing(10)
-        qs_all.setContentsMargins(0, 0, 0, 0)
+        # ---- điều khiển nhanh trên 3 hàng: đổi trạng thái + khảo sát ----
+        qs_grid = QGridLayout()
+        qs_grid.setContentsMargins(0, 0, 0, 0)
+        qs_grid.setHorizontalSpacing(12)
+        qs_grid.setVerticalSpacing(8)
+        # cột combo (lẻ) co giãn để chứa chữ tiếng Việt dài
+        qs_grid.setColumnStretch(1, 1)
+        qs_grid.setColumnStretch(3, 1)
 
+        self.survey_combos = {}
+
+        # Hàng 0: Đổi trạng thái | Khảo sát
         lbl_qs = QLabel("Đổi trạng thái:")
         lbl_qs.setObjectName("Muted")
-        qs_all.addWidget(lbl_qs)
-
+        lbl_qs.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
+        qs_grid.addWidget(lbl_qs, 0, 0)
         self.cmb_d_status = QComboBox()
         for k in RoomStatus.ORDER:
             self.cmb_d_status.addItem(f"● {RoomStatus.label(k)}", k)
         self.cmb_d_status.currentIndexChanged.connect(self._quick_status)
-        qs_all.addWidget(self.cmb_d_status)
-
-        qs_all.addSpacing(12)
+        qs_grid.addWidget(self.cmb_d_status, 0, 1)
 
         lbl_survey = QLabel("Khảo sát:")
         lbl_survey.setObjectName("Muted")
-        qs_all.addWidget(lbl_survey)
+        lbl_survey.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
+        qs_grid.addWidget(lbl_survey, 0, 2)
+        cmb = QComboBox()
+        cmb.addItem("— Chưa biết —", None)
+        cmb.addItem("✅ Có", True)
+        cmb.addItem("❌ Không", False)
+        cmb.setMinimumWidth(115)
+        cmb.setObjectName("Ghost")
+        cmb.currentIndexChanged.connect(lambda _, f="surveyed": self._quick_survey(f))
+        qs_grid.addWidget(cmb, 0, 3)
+        self.survey_combos["surveyed"] = cmb
 
-        self.survey_combos = {}
-        survey_items = [
-            ("surveyed", "Khảo sát", False),
+        # Hàng 1: Xe điện | Khách NNGO
+        items_row1 = [
             ("ev_support", "Xe điện", False),
             ("foreign_guest", "Khách NNGO", False),
-            ("pet_policy", "Pet", False),
-            ("rating", "Đánh giá", True),
         ]
-        for key, label, is_rating in survey_items:
+        for col, key, label, is_rating in ((0, *items_row1[0]), (2, *items_row1[1])):
             lbl = QLabel(label)
             lbl.setObjectName("Muted")
             lbl.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
-            qs_all.addWidget(lbl)
+            qs_grid.addWidget(lbl, 1, col)
+            cmb = QComboBox()
+            cmb.addItem("— Chưa biết —", None)
+            cmb.addItem("✅ Có", True)
+            cmb.addItem("❌ Không", False)
+            cmb.setMinimumWidth(115)
+            cmb.setObjectName("Ghost")
+            cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
+            qs_grid.addWidget(cmb, 1, col + 1)
+            self.survey_combos[key] = cmb
+
+        # Hàng 2: Pet | Đánh giá
+        items_row2 = [
+            ("pet_policy", "Pet", False),
+            ("rating", "Đánh giá", True),
+        ]
+        for col, key, label, is_rating in ((0, *items_row2[0]), (2, *items_row2[1])):
+            lbl = QLabel(label)
+            lbl.setObjectName("Muted")
+            lbl.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
+            qs_grid.addWidget(lbl, 2, col)
             cmb = QComboBox()
             cmb.addItem("— Chưa biết —", None)
             if is_rating:
@@ -460,11 +492,10 @@ class RoomPage(QWidget):
             cmb.setMinimumWidth(115)
             cmb.setObjectName("Ghost")
             cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
-            qs_all.addWidget(cmb)
+            qs_grid.addWidget(cmb, 2, col + 1)
             self.survey_combos[key] = cmb
 
-        qs_all.addStretch(1)
-        phl.addLayout(qs_all)
+        phl.addLayout(qs_grid)
         dl.addWidget(phead)
 
         # ---------- NỘI DUNG CUỘN: chỉ số + chip + thông tin + vị trí ----------

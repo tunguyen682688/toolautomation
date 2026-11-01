@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 import text_utils as tu
 from grouped_table import GroupedTableModel, group_row_size_hint, paint_group_row
 from inventory_manager import DuplicateError
-from media_panel import MediaPanel
+from media_panel import CoverPreview, MediaPanel
 from models import ROOM_TABLE_COLUMNS, ROOM_TYPES, RoomFilter, RoomStatus
 from theme import status_bg, status_color, status_label
 import theme
@@ -440,6 +440,10 @@ class RoomPage(QWidget):
         cl.setContentsMargins(20, 4, 20, 8)
         cl.setSpacing(10)
 
+        # ---- SƠ LƯỢC ẢNH: ảnh đại diện phòng (biết ngay ảnh trông như nào) ----
+        self.cover = CoverPreview(self.mgr)
+        cl.addWidget(self.cover)
+
         # 3 ô chỉ số: Giá / Cọc / Diện tích
         mrow = QHBoxLayout()
         mrow.setSpacing(8)
@@ -771,6 +775,7 @@ class RoomPage(QWidget):
         self.d_addr.setText("—")
         self.d_meta.setText("")
         self.media_panel.set_room(None)
+        self.cover.set_room(None)
         self.cmb_d_status.blockSignals(True)
         self.cmb_d_status.setCurrentIndex(0)
         self.cmb_d_status.setEnabled(False)
@@ -870,6 +875,7 @@ class RoomPage(QWidget):
             f"Phiên bản: v{r.get('version')} · Đồng bộ: {r.get('sync_state')}")
 
         # ---- Ảnh / Video của phòng (đọc từ thư mục quy ước)
+        self.cover.set_room(r)
         self.media_panel.set_room(r)
 
         # nút hành động: ĐỀU NHAU full-width (Sửa - Primary, còn lại DetailAction, Xóa - Danger)

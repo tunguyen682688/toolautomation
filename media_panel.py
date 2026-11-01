@@ -12,9 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QSize, QMimeData, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QRect, QSize, QMimeData, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (QColor, QDesktopServices, QIcon, QImageReader,
-                           QPixmap, QPainter, QFont)
+                           QPixmap, QPainter, QFont, QPen, QPainterPath)
 from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu,
                                QMessageBox, QPushButton, QVBoxLayout, QWidget)
@@ -53,6 +53,125 @@ def _placeholder_pixmap(size: int) -> QPixmap:
     pm = QPixmap(size * 2, size * 2)
     pm.fill(QColor(theme.c("track")))
     return pm
+
+
+class CoverPreview(QLabel):
+    """Sơ lược ẢNH ĐẠI DIỆN của phòng trong panel chi tiết.
+
+    Hiển thị ảnh đầu tiên (co giữ tỉ lệ, bo góc) + badge đếm "📷 N ảnh · ▶ M video"
+    ở góc dưới bên phải. Bấm vào -> mở ảnh đầu tiên bằng trình xem mặc định;
+    bấm chuột phải -> menu (mở ảnh / mở thư mục). Không có ảnh -> placeholder.
+    """
+
+    HEIGHT = 168
+
+    def __init__(self, manager, parent=None):
+        super().__init__(parent)
+        self.mgr = manager
+        self.room: Optional[Dict[str, Any]] = None
+        self._media: List[Dict[str, Any]] = []
+        self._pm: Optional[QPixmap] = None
+        self.setFixedHeight(self.HEIGHT)
+        self.setAlignment(Qt.AlignCenter)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setWordWrap(True)
+        self.setStyleSheet(
+            f"background:{theme.c('bg_alt')}; border:1px dashed {theme.c('border')};"
+            " border-radius:12px; color:{0}; font-size:12px;".format(theme.c("text3")))
+        self.setToolTip("Sơ lược ảnh đại diện — bấm để xem ảnh đầu tiên")
+
+    # ================================================================ data
+    def set_room(self, room: Optional[Dict[str, Any]]):
+        self.room = room
+        self._media = []
+        self._pm = None
+        if not room:
+            self.setText("📷 Chưa có ảnh")
+            self.setPixmap(QPixmap())
+            return
+        self._media = mm.list_media(room, self.mgr.settings)
+        n_img = sum(1 for m in self._media if m["kind"] == "image")
+        n_vid = sum(1 for m in self._media if m["kind"] == "video")
+        first_img = next((m for m in self._media if m["kind"] == "image"), None)
+        if first_img:
+            self._pm = _thumb_pixmap(first_img["path"], self.HEIGHT)
+            if self._pm is not None:
+                self.setText("")
+                self.setToolTip(
+                    f"Ảnh đại diện: {first_img['name']}\n"
+                    f"📷 {n_img} ảnh · ▶ {n_vid} video — bấm để xem ảnh đầu tiên")
+                self.update()
+                return
+        # không có ảnh (hoặc ảnh lỗi) -> chữ
+        if n_vid:
+            self.setText(f"🎬 {n_vid} video · chưa có ảnh\nbấm ＋ Thêm để thêm ảnh phòng")
+        else:
+            self.setText("📷 Chưa có ảnh\nbấm ＋ Thêm bên dưới để thêm ảnh phòng")
+
+    def media_counts(self):
+        n_img = sum(1 for m in self._media if m["kind"] == "image")
+        n_vid = sum(1 for m in self._media if m["kind"] == "video")
+        return n_img, n_vid
+
+    # ================================================================ paint
+    def paintEvent(self, ev):
+        super().paintEvent(ev)
+        if self._pm is None or self._pm.isNull():
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = self.rect().adjusted(3, 3, -3, -3)
+        # ảnh co giữ tỉ lệ, cắt cho vừa khung (cover) trong vùng bo góc
+        path = QPainterPath()
+        path.addRoundedRect(r.x(), r.y(), r.width(), r.height(), 10, 10)
+        p.save()
+        p.setClipPath(path)
+        pm = self._pm
+        scale = max(r.width() / pm.width(), r.height() / pm.height())
+        w, h = int(pm.width() * scale), int(pm.height() * scale)
+        p.drawPixmap(r.x() + (r.width() - w) // 2, r.y() + (r.height() - h) // 2,
+                     pm.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+        p.restore()
+        # badge đếm ở góc dưới phải
+        n_img, n_vid = self.media_counts()
+        badge = f"📷 {n_img}" + (f"  ▶ {n_vid}" if n_vid else "")
+        f = QFont()
+        f.setBold(True)
+        f.setPointSize(9)
+        p.setFont(f)
+        br = self.rect()
+        tw = p.fontMetrics().horizontalAdvance(badge) + 18
+        bh = 22
+        bx, by = br.right() - tw - 10, br.bottom() - bh - 8
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(15, 23, 42, 210))
+        p.drawRoundedRect(bx, by, tw, bh, 11, 11)
+        p.setPen(QColor("#FFFFFF"))
+        p.drawText(QRect(bx, by, tw, bh), Qt.AlignCenter, badge)
+        p.end()
+
+    # ================================================================ tương tác
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.RightButton:
+            self._menu(ev.globalPosition().toPoint())
+            return
+        if ev.button() == Qt.LeftButton:
+            first = next((m for m in self._media if m["kind"] == "image"), None)
+            if first:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(first["path"]))
+        super().mousePressEvent(ev)
+
+    def _menu(self, pos):
+        menu = QMenu(self)
+        first = next((m for m in self._media if m["kind"] == "image"), None)
+        if first:
+            menu.addAction("🔍 Mở ảnh đầu tiên",
+                           lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(first["path"])))
+        if self.room:
+            menu.addAction("📂 Mở thư mục ảnh phòng",
+                           lambda: QDesktopServices.openUrl(
+                               QUrl.fromLocalFile(str(mm.room_media_dir(self.room, self.mgr.settings)))))
+        menu.exec(pos)
 
 
 class MediaPanel(QWidget):

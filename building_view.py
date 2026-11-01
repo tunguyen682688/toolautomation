@@ -548,16 +548,17 @@ class BuildingTableModel(GroupedTableModel):
 
     COLS = [
         ("code",        "Mã tòa",         80),
-        ("display",     "Địa chỉ",       220),   # cột co giãn
-        ("ward",        "Phường",         75),
+        ("house_number","Số nhà",          70),
+        ("street",      "Tên đường",      160),   # cột co giãn
+        ("ward",        "Phường",          75),
         ("district",    "Quận / Khu vực", 110),
-        ("owner_name",  "Chủ nhà",       130),
-        ("phone",       "Số điện thoại",  115),
-        ("rooms_total", "Tổng",           55),
-        ("rooms_vacant","Trống",          60),
-        ("rooms_deposit","Cọc",           55),
-        ("rooms_rented","Thuê",           55),
-        ("rooms_soon",  "Sắp trống",      80),
+        ("owner_name",  "Chủ nhà",        130),
+        ("phone",       "Số điện thoại",   115),
+        ("rooms_total", "Tổng",            55),
+        ("rooms_vacant","Trống",           60),
+        ("rooms_deposit","Cọc",            55),
+        ("rooms_rented","Thuê",            55),
+        ("rooms_soon",  "Sắp trống",       80),
     ]
 
     def __init__(self, manager, parent=None):
@@ -571,7 +572,7 @@ class BuildingTableModel(GroupedTableModel):
         return {"rooms_total", "rooms_vacant", "rooms_deposit", "rooms_rented", "rooms_soon"}
 
     def center_align_keys(self):
-        return {"code", "ward"}
+        return {"code", "ward", "house_number"}
 
     # --- phân cụm theo (quận, phường) để tránh trùng tên phường giữa 2 quận
     def group_key_of(self, row):
@@ -640,9 +641,7 @@ class BuildingTableModel(GroupedTableModel):
             return str(int(v or 0))
         if key == "phone":
             return v or "—"
-        if key == "ward":
-            return v or "—"
-        if key == "district":
+        if key in ("ward", "district", "house_number", "street"):
             return v or "—"
         return str(v) if v not in (None, "") else ""
 
@@ -749,7 +748,7 @@ class BuildingPage(QWidget):
         hdr.setSectionResizeMode(QHeaderView.Interactive)
         for i, (_, _, w) in enumerate(BuildingTableModel.COLS):
             self.table.setColumnWidth(i, w)
-        hdr.setSectionResizeMode(1, QHeaderView.Stretch)     # cột địa chỉ co giãn
+        hdr.setSectionResizeMode(2, QHeaderView.Stretch)     # cột tên đường co giãn
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.doubleClicked.connect(self._on_double_click)
         self.table.clicked.connect(self._on_row_clicked)

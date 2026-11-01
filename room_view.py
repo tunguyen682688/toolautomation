@@ -429,17 +429,46 @@ class RoomPage(QWidget):
         phl.addLayout(qs_row)
 
         # ---- sửa nhanh các trường khảo sát (Có / Không / Chưa biết) ----
-        qs_row2 = QHBoxLayout()
-        qs_row2.setSpacing(10)
-        lbl_qs2 = QLabel("Khảo sát:")
-        lbl_qs2.setObjectName("Muted")
-        qs_row2.addWidget(lbl_qs2)
+        # Sắp xếp thành 2 hàng để không bị dồn chật/cắt chữ
+        qs_container = QWidget()
+        qs_container.setStyleSheet("background:transparent;")
+        qs_vlay = QVBoxLayout(qs_container)
+        qs_vlay.setContentsMargins(0, 0, 0, 0)
+        qs_vlay.setSpacing(6)
 
         self.survey_combos = {}
+
+        # Hàng 1: Khảo sát / Xe điện / Khách NNGO
+        qs_row1 = QHBoxLayout()
+        qs_row1.setSpacing(10)
+        lbl_qs = QLabel("Khảo sát:")
+        lbl_qs.setObjectName("Muted")
+        qs_row1.addWidget(lbl_qs)
         for key, label, is_rating in (
             ("surveyed", "Khảo sát", False),
             ("ev_support", "Xe điện", False),
             ("foreign_guest", "Khách NNGO", False),
+        ):
+            lbl = QLabel(label)
+            lbl.setObjectName("Muted")
+            lbl.setStyleSheet("font-size:11px; font-weight:700; background:transparent;")
+            qs_row1.addWidget(lbl)
+            cmb = QComboBox()
+            cmb.addItem("— Chưa biết —", None)
+            cmb.addItem("✅ Có", True)
+            cmb.addItem("❌ Không", False)
+            cmb.setMinimumWidth(130)
+            cmb.setObjectName("Ghost")
+            cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
+            qs_row1.addWidget(cmb)
+            self.survey_combos[key] = cmb
+        qs_row1.addStretch(1)
+        qs_vlay.addLayout(qs_row1)
+
+        # Hàng 2: Pet / Đánh giá
+        qs_row2 = QHBoxLayout()
+        qs_row2.setSpacing(10)
+        for key, label, is_rating in (
             ("pet_policy", "Pet", False),
             ("rating", "Đánh giá", True),
         ):
@@ -455,14 +484,15 @@ class RoomPage(QWidget):
             else:
                 cmb.addItem("✅ Có", True)
                 cmb.addItem("❌ Không", False)
-            # chiều rộng đủ dài cho text tiếng Việt dài nhất ("— Chưa biết —")
             cmb.setMinimumWidth(150 if is_rating else 130)
             cmb.setObjectName("Ghost")
             cmb.currentIndexChanged.connect(lambda _, f=key: self._quick_survey(f))
             qs_row2.addWidget(cmb)
             self.survey_combos[key] = cmb
         qs_row2.addStretch(1)
-        phl.addLayout(qs_row2)
+        qs_vlay.addLayout(qs_row2)
+
+        phl.addWidget(qs_container)
         dl.addWidget(phead)
 
         # ---------- NỘI DUNG CUỘN: chỉ số + chip + thông tin + vị trí ----------

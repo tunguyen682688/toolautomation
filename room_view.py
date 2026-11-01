@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 import text_utils as tu
+from grouped_table import GroupedTableModel, group_row_size_hint, paint_group_row
 from inventory_manager import DuplicateError
 from media_panel import MediaPanel
 from models import ROOM_TABLE_COLUMNS, ROOM_TYPES, RoomFilter, RoomStatus
@@ -30,13 +31,13 @@ from building_view import FlowLayout   # layout tự wrap - dùng cho toolbar re
 
 # ------------------------------------------------------------------ delegate hiển thị
 class RoomDelegate(QStyledItemDelegate):
-    def paint(self, painter: QStyleOptionViewItem, option, index):
+    def paint(self, painter, option, index):
+        if paint_group_row(painter, option, index):
+            return                       # đã vẽ hàng tiêu đề nhóm phường
         opt = QStyleOptionViewItem(option)
         col_key = ROOM_TABLE_COLUMNS[index.column()][0]
-        row = index.row()
-        model = index.model()
         if col_key == "status":
-            st = model.data(index, Qt.UserRole) or ""
+            st = index.model().data(index, Qt.UserRole) or ""
             # trạng thái hiển thị mờ nhạt, chữ đậm, căn giữa
             opt.displayAlignment = Qt.AlignCenter | Qt.AlignVCenter
             opt.font = QFont(opt.font)
@@ -51,69 +52,69 @@ class RoomDelegate(QStyledItemDelegate):
         super().paint(painter, opt, index)
 
     def sizeHint(self, option, index):
+        gh = group_row_size_hint(option, index)
+        if gh is not None:
+            return gh
         s = super().sizeHint(option, index)
         s.setHeight(max(s.height(), 44))
         return s
 
 
 # ------------------------------------------------------------------ model bảng
-class RoomTableModel(QAbstractTableModel):
+class RoomTableModel(GroupedTableModel):
+    """Bảng phòng ảo hoá, có THÊM hàng tiêu đề nhóm theo phường."""
+
     def __init__(self, manager, parent=None):
         super().__init__(parent)
         self.mgr = manager
-        self.rows: List[Dict[str, Any]] = []
         self._text = ""
         self._filter: Optional[RoomFilter] = None
 
     # --- data pipeline
     def set_query(self, text: str, f: Optional[RoomFilter]):
-        self.beginResetModel()
         self._text = text
         self._filter = f
-        self.rows = self.mgr.rooms(text, f)
-        self.endResetModel()
+        self.set_rows(self.mgr.rooms(text, f))
 
     def refresh(self):
         self.set_query(self._text, self._filter)
 
+    # --- map dòng hiển thị -> dữ liệu (qua hàng nhóm)
     def room_at(self, row: int) -> Optional[Dict[str, Any]]:
-        return self.rows[row] if 0 <= row < len(self.rows) else None
+        return self.data_row_at(row)
 
     def room_id_at(self, row: int) -> str:
         r = self.room_at(row)
         return r["id"] if r else ""
 
-    # --- QAbstractTableModel
-    def rowCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else len(self.rows)
+    # --- GroupedTableModel
+    def columns(self):
+        return ROOM_TABLE_COLUMNS
 
-    def columnCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else len(ROOM_TABLE_COLUMNS)
+    def right_align_keys(self):
+        return {"price", "deposit"}
 
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
-            return ROOM_TABLE_COLUMNS[section][1]
-        if role == Qt.TextAlignmentRole and orientation == Qt.Horizontal:
-            key = ROOM_TABLE_COLUMNS[section][0]
-            if key in ("price", "deposit"):
-                return int(Qt.AlignRight | Qt.AlignVCenter)
-            return int(Qt.AlignLeft | Qt.AlignVCenter)
-        return None
+    def group_key_of(self, row):
+        return tu.canon_ward(row.get("ward"))
 
-    def flags(self, index):
-        if not index.isValid():
-            return Qt.NoItemFlags
-        key = ROOM_TABLE_COLUMNS[index.column()][0]
+    def group_title_of(self, key, rows):
+        if not key:
+            return "📍 Chưa ghi phường"
+        d = str(rows[0].get("district") or "").strip()
+        return f"📍 P.{key}" + (f"  ·  {d}" if d else "")
+
+    def group_meta_of(self, key, rows):
+        n = len(rows)
+        vac = sum(1 for r in rows if r.get("status") == "vacant")
+        return f"{n} phòng · {vac} trống"
+
+    def cell_flags(self, col_key):
         f = Qt.ItemIsEnabled | Qt.ItemIsSelectable
-        if key in ("status", "price", "deposit", "room_code", "room_type"):
+        if col_key in ("status", "price", "deposit", "room_code", "room_type"):
             f |= Qt.ItemIsEditable
         return f
 
-    def data(self, index, role=Qt.DisplayRole):
-        if not index.isValid():
-            return None
-        r = self.rows[index.row()]
-        key = ROOM_TABLE_COLUMNS[index.column()][0]
+    def cell_data(self, r, key, role):
         if role == Qt.UserRole:
             return r.get("status", "")
         if role == Qt.ForegroundRole and key == "status":
@@ -150,11 +151,7 @@ class RoomTableModel(QAbstractTableModel):
             return v or "—"
         return str(v) if v not in (None, "") else ""
 
-    def setData(self, index, value, role=Qt.EditRole):
-        if role != Qt.EditRole or not index.isValid():
-            return False
-        r = self.rows[index.row()]
-        key = ROOM_TABLE_COLUMNS[index.column()][0]
+    def cell_set(self, r, key, value):
         rid = r["id"]
         changes: Dict[str, Any] = {}
         if key == "status":
@@ -276,6 +273,14 @@ class RoomPage(QWidget):
         self.cmb_building.setMinimumWidth(190)
         self.cmb_building.currentIndexChanged.connect(self._apply_filter)
         row1.addWidget(self.cmb_building)
+
+        self.chk_group = QCheckBox("🏘 Phân cụm phường")
+        self.chk_group.setChecked(True)
+        self.chk_group.setToolTip(
+            "Gộp danh sách theo từng PHƯỜNG: mỗi phường một hàng tiêu đề\n"
+            "«📍 P.xx · quận · N phòng · X trống» nằm trên đầu cụm dòng.")
+        self.chk_group.toggled.connect(self._apply_filter)
+        row1.addWidget(self.chk_group)
 
         self.chk_ev = QCheckBox("⚡ Xe điện")
         self.chk_ev.toggled.connect(self._apply_filter)
@@ -692,7 +697,8 @@ class RoomPage(QWidget):
     def _apply_filter(self, *_):
         self._filter = self._collect_filter()
         self.model.set_query(getattr(self, "_text", ""), self._filter)
-        n = self.model.rowCount()
+        self.model.set_grouped(self.chk_group.isChecked())
+        n = self.model.data_row_count()
         self.lbl_count.setText(f"{n} phòng" + (f" · «{self._title}»" if self._title != "Tất cả phòng" else ""))
 
     def reset_filters(self):

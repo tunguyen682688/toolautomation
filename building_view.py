@@ -12,16 +12,18 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QModelIndex, QPoint, QRect, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QFormLayout, QFrame, QGridLayout,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QLayout, QListView,
     QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSplitter,
-    QStyle, QTableView, QToolButton, QVBoxLayout, QWidget,
+    QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableView,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 import text_utils as tu
 from google_drive import open_drive, open_phone, open_zalo
+from grouped_table import GroupedTableModel, group_row_size_hint, paint_group_row
 from models import RoomFilter
 import theme
 from theme import C_ACCENT, C_BORDER, C_OK, C_ORANGE, C_WARN, C_DANGER, C_MUTED, \
@@ -540,6 +542,126 @@ class BuildingCard(QFrame):
         super().mousePressEvent(ev)
 
 
+# ------------------------------------------------------------------ model bảng tòa
+class BuildingTableModel(GroupedTableModel):
+    """Bảng tòa nhà ảo hoá, phân cụm theo PHƯỜNG (cùng phường gộp chung)."""
+
+    COLS = [
+        ("code",        "Mã tòa",         80),
+        ("display",     "Địa chỉ",       220),   # cột co giãn
+        ("ward",        "Phường",         75),
+        ("district",    "Quận / Khu vực", 110),
+        ("owner_name",  "Chủ nhà",       130),
+        ("phone",       "Số điện thoại",  115),
+        ("rooms_total", "Tổng",           55),
+        ("rooms_vacant","Trống",          60),
+        ("rooms_deposit","Cọc",           55),
+        ("rooms_rented","Thuê",           55),
+        ("rooms_soon",  "Sắp trống",      80),
+    ]
+
+    def __init__(self, manager, parent=None):
+        super().__init__(parent)
+        self.mgr = manager
+
+    def columns(self):
+        return self.COLS
+
+    def right_align_keys(self):
+        return {"rooms_total", "rooms_vacant", "rooms_deposit", "rooms_rented", "rooms_soon"}
+
+    def center_align_keys(self):
+        return {"code", "ward"}
+
+    # --- phân cụm theo (quận, phường) để tránh trùng tên phường giữa 2 quận
+    def group_key_of(self, row):
+        return (tu.canon_district(row.get("district")) + "|" +
+                tu.canon_ward(row.get("ward")))
+
+    def group_sort_key(self, key):
+        d, _, w = key.partition("|")
+        wk = (0, int(w), "") if w.isdigit() else (1, 0, w)
+        return (d, wk)
+
+    def group_title_of(self, key, rows):
+        d, _, w = key.partition("|")
+        parts = []
+        if w:
+            raw_w = str(rows[0].get("ward") or "").strip()
+            parts.append(f"📍 {raw_w or ('P.' + w)}")
+        if d:
+            raw_d = str(rows[0].get("district") or "").strip()
+            parts.append(raw_d or d)
+        return "  ·  ".join(parts) or "Chưa ghi địa chỉ"
+
+    def group_meta_of(self, key, rows):
+        n = len(rows)
+        rooms = sum(int(b.get("rooms_total", 0) or 0) for b in rows)
+        vac = sum(int(b.get("rooms_vacant", 0) or 0) for b in rows)
+        return f"{n} tòa · {rooms} phòng · {vac} trống"
+
+    def cell_flags(self, col_key):
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+
+    def cell_data(self, b, key, role):
+        if role == Qt.TextAlignmentRole:
+            if key in self.right_align_keys():
+                return int(Qt.AlignRight | Qt.AlignVCenter)
+            if key in self.center_align_keys():
+                return int(Qt.AlignHCenter | Qt.AlignVCenter)
+            return None
+        if role == Qt.ForegroundRole:
+            if key == "rooms_vacant":
+                return QColor(theme.c("ok")) if int(b.get("rooms_vacant", 0) or 0) > 0 \
+                    else QColor(theme.c("text3"))
+            if key == "rooms_soon":
+                return QColor(theme.c("warn")) if int(b.get("rooms_soon", 0) or 0) > 0 \
+                    else QColor(theme.c("text3"))
+            if key == "rooms_rented":
+                return QColor(theme.c("danger")) if int(b.get("rooms_rented", 0) or 0) > 0 \
+                    else QColor(theme.c("text3"))
+            if key == "rooms_deposit":
+                return QColor(theme.c("orange")) if int(b.get("rooms_deposit", 0) or 0) > 0 \
+                    else QColor(theme.c("text3"))
+            return None
+        if role == Qt.ToolTipRole:
+            return (f"{b.get('code','')} — {b.get('display','')}\n"
+                    f"Chủ nhà: {b.get('owner_name','—')} · {b.get('phone','—')}\n"
+                    f"Tổng {b.get('rooms_total',0)} · Trống {b.get('rooms_vacant',0)} · "
+                    f"Cọc {b.get('rooms_deposit',0)} · Thuê {b.get('rooms_rented',0)} · "
+                    f"Sắp trống {b.get('rooms_soon',0)}\n"
+                    f"Double-click để mở bảng phòng của tòa này")
+        if role != Qt.DisplayRole:
+            return None
+        v = b.get(key, "")
+        if key == "rooms_soon":
+            return str(int(v or 0))
+        if key in ("rooms_total", "rooms_vacant", "rooms_deposit", "rooms_rented"):
+            return str(int(v or 0))
+        if key == "phone":
+            return v or "—"
+        if key == "ward":
+            return v or "—"
+        if key == "district":
+            return v or "—"
+        return str(v) if v not in (None, "") else ""
+
+
+class BuildingDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        if paint_group_row(painter, option, index):
+            return                       # đã vẽ hàng tiêu đề nhóm phường
+        super().paint(painter, option, index)
+
+    def sizeHint(self, option, index):
+        gh = group_row_size_hint(option, index)
+        if gh is not None:
+            return gh
+        s = super().sizeHint(option, index)
+        s.setHeight(max(s.height(), 38))
+        return s
+
+
 # ------------------------------------------------------------------ trang tòa nhà
 class BuildingPage(QWidget):
     building_selected = Signal(dict)   # click thẻ -> hiển thị phòng inline bên phải
@@ -549,7 +671,7 @@ class BuildingPage(QWidget):
     def __init__(self, manager, parent=None):
         super().__init__(parent)
         self.mgr = manager
-        self._cards: List[BuildingCard] = []
+        self._model = BuildingTableModel(manager, self)
         self._build_ui()
         self.building_selected.connect(lambda d: self.panel.set_building(d.get("building")))
 
@@ -575,6 +697,15 @@ class BuildingPage(QWidget):
         self.cmb_ward.currentIndexChanged.connect(self._apply_filter)
         self.cmb_ward.setToolTip("Lọc theo phường (thuộc khu vực đang chọn)")
         fl.addWidget(self.cmb_ward)
+
+        self.chk_group = QCheckBox("🏘 Phân cụm phường")
+        self.chk_group.setChecked(True)
+        self.chk_group.setToolTip(
+            "Gộp bảng tòa nhà theo từng PHƯỜNG: mỗi phường một hàng tiêu đề\n"
+            "«📍 P.xx · quận · N tòa · M phòng · X trống».")
+        self.chk_group.toggled.connect(self._apply_filter)
+        fl.addWidget(self.chk_group)
+
         self.ed_search = _QLE()
         self.ed_search.setPlaceholderText("🔎 Địa chỉ / chủ nhà / SĐT...")
         self.ed_search.setMinimumWidth(220)
@@ -598,23 +729,31 @@ class BuildingPage(QWidget):
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
 
-        # trái: lưới thẻ tòa nhà
+        # trái: bảng tòa nhà (QTableView như trang Phòng)
         left = QWidget()
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
         ll.setSpacing(0)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        self.container = QWidget()
-        # phân cụm: mỗi khu vực = 1 section header + lưới thẻ (FlowLayout riêng)
-        self.container_lay = QVBoxLayout(self.container)
-        self.container_lay.setContentsMargins(0, 0, 8, 0)
-        self.container_lay.setSpacing(4)
-        self.container.setLayout(self.container_lay)
-        self._cluster_flows: List[FlowLayout] = []
-        scroll.setWidget(self.container)
-        ll.addWidget(scroll, 1)
+        self.table = QTableView()
+        self.table.setModel(self._model)
+        self.table.setItemDelegate(BuildingDelegate(self.table))
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(38)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        hdr = self.table.horizontalHeader()
+        hdr.setStretchLastSection(False)
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        for i, (_, _, w) in enumerate(BuildingTableModel.COLS):
+            self.table.setColumnWidth(i, w)
+        hdr.setSectionResizeMode(1, QHeaderView.Stretch)     # cột địa chỉ co giãn
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.doubleClicked.connect(self._on_double_click)
+        self.table.clicked.connect(self._on_row_clicked)
+        ll.addWidget(self.table, 1)
         split.addWidget(left)
 
         # phải: panel phòng nhanh của tòa đang chọn
@@ -685,117 +824,28 @@ class BuildingPage(QWidget):
         n_vac = sum(int(b.get("rooms_vacant", 0) or 0) for b in buildings)
         self.lbl_sum.setText(f"{len(buildings)} tòa  ·  {n_rooms} phòng  ·  {n_vac} trống")
 
-        # dọn container cũ
-        while self.container_lay.count():
-            item = self.container_lay.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-        self._cards = []
-        self._cluster_flows = []
+        # nạp vào bảng (phân cụm theo phường nếu đang bật)
+        self._model.set_rows(buildings)
+        self._model.set_grouped(self.chk_group.isChecked())
 
-        if not buildings:
-            empty = QLabel("Không có tòa nhà nào khớp bộ lọc.")
-            empty.setObjectName("Muted")
-            self.container_lay.addWidget(empty)
-        else:
-            # ---- PHÂN CỤM CẤP 1: KHU VỰC (quận): 'Q. Bình Thạnh cũ' = 'Q. Bình Thạnh' ----
-            groups: Dict[str, Dict] = {}
-            order: List[str] = []
-            for b in buildings:
-                raw = str(b.get("district") or "").strip()
-                k = tu.canon_district(raw) or "(khác)"
-                g = groups.get(k)
-                if not g:
-                    g = {"title": raw or "Khu vực khác", "items": []}
-                    groups[k] = g
-                    order.append(k)
-                g["items"].append(b)
-                if raw and len(raw) < len(g["title"]):
-                    g["title"] = raw        # ưu tiên tên ngắn gọn
-            order.sort(key=lambda k: -len(groups[k]["items"]))   # cụm nhiều tòa lên trước
+    # ------------------------------------------------------------------ chọn tòa
+    def _on_row_clicked(self, idx):
+        if not idx.isValid():
+            return
+        b = self._model.data_row_at(idx.row())
+        if b:
+            self.building_selected.emit({"building": b})
 
-            for k in order:
-                g = groups[k]
-                n_b = len(g["items"])
-                n_rooms = sum(int(b.get("rooms_total", 0) or 0) for b in g["items"])
-                n_vac = sum(int(b.get("rooms_vacant", 0) or 0) for b in g["items"])
-                self.container_lay.addWidget(self._section_header(
-                    f"📍 {g['title']}",
-                    f"{n_b} tòa   ·   {n_rooms} phòng   ·   {n_vac} trống"))
-
-                # ---- PHÂN CỤM CẤP 2: PHƯỜNG (P.13, P.5, ...) - tự tạo từ dữ liệu ----
-                ward_groups: Dict[str, Dict] = {}
-                ward_order: List[str] = []
-                for b in g["items"]:
-                    raw_w = str(b.get("ward") or "").strip()
-                    kw = tu.canon_ward(raw_w) or "(khác)"
-                    wg = ward_groups.get(kw)
-                    if not wg:
-                        wg = {"title": raw_w or "Chưa phân phường", "items": []}
-                        ward_groups[kw] = wg
-                        ward_order.append(kw)
-                    wg["items"].append(b)
-                    if raw_w and len(raw_w) < len(wg["title"]):
-                        wg["title"] = raw_w
-
-                # thứ tự phường theo TÊN (A->Z) -> cụm ổn định, dễ tra cứu
-                ward_order.sort(key=lambda x: ward_groups[x]["title"].lower())
-                show_wards = len(ward_groups) > 1
-
-                def _ward_sub(wk: str):
-                    """Header phường + lưới thẻ của phường đó."""
-                    wg = ward_groups[wk]
-                    if show_wards:
-                        n_wb = len(wg["items"])
-                        n_wr = sum(int(b.get("rooms_total", 0) or 0) for b in wg["items"])
-                        n_wv = sum(int(b.get("rooms_vacant", 0) or 0) for b in wg["items"])
-                        self.container_lay.addWidget(self._section_header(
-                            f"🏷️ {wg['title']}",
-                            f"{n_wb} tòa   ·   {n_wr} phòng   ·   {n_wv} trống",
-                            level=2))
-
-                    wrap = QWidget()
-                    wrap.setStyleSheet("background:transparent;")
-                    flow = FlowLayout(wrap, 14, 14)
-                    flow.setContentsMargins(0, 0, 6, 0)
-                    wrap.setLayout(flow)
-                    for b in wg["items"]:
-                        card = BuildingCard(b)
-                        card.open_rooms.connect(self.building_selected.emit)
-                        card.edit_requested.connect(self._edit)
-                        flow.addWidget(card)
-                        self._cards.append(card)
-                    self._cluster_flows.append(flow)
-                    self.container_lay.addWidget(wrap)
-
-                # ---- CỤM TỰ ĐỘNG ~5 PHƯỜNG: quận nhiều phường -> gom thành cụm ----
-                CLUSTER_SIZE = 5
-                if len(ward_order) > CLUSTER_SIZE:
-                    chunks = [ward_order[i:i + CLUSTER_SIZE]
-                              for i in range(0, len(ward_order), CLUSTER_SIZE)]
-                    for ci, chunk in enumerate(chunks, 1):
-                        c_items = [b for wk in chunk for b in ward_groups[wk]["items"]]
-                        n_cb = len(c_items)
-                        n_cr = sum(int(b.get("rooms_total", 0) or 0) for b in c_items)
-                        n_cv = sum(int(b.get("rooms_vacant", 0) or 0) for b in c_items)
-                        names = ", ".join(ward_groups[wk]["title"] for wk in chunk)
-                        chead = QLabel(
-                            f"    🧩 Cụm {ci} · {names}\n"
-                            f"    {len(chunk)} phường   ·   {n_cb} tòa   ·   "
-                            f"{n_cr} phòng   ·   {n_cv} trống")
-                        chead.setWordWrap(True)
-                        chead.setStyleSheet(
-                            f"background:{theme.c('info_soft')}; color:{theme.c('info')};"
-                            f" font-weight:800; font-size:13px;"
-                            f"border-left:4px solid {theme.c('info')}; border-radius:8px;"
-                            " padding:8px 12px;")
-                        self.container_lay.addWidget(chead)
-                        for wk in chunk:
-                            _ward_sub(wk)
-                else:
-                    for wk in ward_order:
-                        _ward_sub(wk)
+    def _on_double_click(self, idx):
+        if not idx.isValid():
+            return
+        b = self._model.data_row_at(idx.row())
+        if not b:
+            return
+        self.open_rooms.emit({
+            "filter": RoomFilter(building_id=b["id"]),
+            "title": b.get("display", "") or b.get("code", ""),
+        })
 
     def _reload_zones(self, base_buildings: List[Dict[str, Any]]):
         """Cập nhật combobox khu vực + phường (phường phụ thuộc khu vực đang chọn)."""

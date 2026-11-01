@@ -100,16 +100,16 @@ def main() -> int:
     def buildings():
         win.navigate("buildings")
         app.processEvents()
-        n = len(win.page_buildings._cards)
-        assert n >= 50, f"Chỉ thấy {n} thẻ tòa (mong >=50)"
+        n = win.page_buildings._model.data_row_count()
+        assert n >= 50, f"Chỉ thấy {n} dòng tòa (mong >=50)"
         # tìm lọc
         win.page_buildings.ed_search.setText("nguyen thuong hien")
         app.processEvents()
-        n2 = len(win.page_buildings._cards)
+        n2 = win.page_buildings._model.data_row_count()
         assert 0 < n2 < n, f"Lọc tòa không hoạt động: {n} -> {n2}"
         win.page_buildings.ed_search.clear()
 
-    check("Trang tòa nhà: lưới thẻ + lọc địa chỉ", buildings)
+    check("Trang tòa nhà: bảng + lọc địa chỉ", buildings)
 
     # ---------------------------------------------------------- form thêm phòng
     def edit_form():
@@ -145,13 +145,13 @@ def main() -> int:
         win.navigate("rooms")
         win.page_rooms.reset_filters()
         app.processEvents()
-        rows = win.page_rooms.model.rowCount()
+        rows = win.page_rooms.model.data_row_count()
         assert rows == mgr.stats()["total"], f"Bảng có {rows} dòng, DB {mgr.stats()['total']}"
         # tìm kiếm không dấu
         win.search.setText("duong smoke test")
         win.page_rooms.set_text("duong smoke test")
         app.processEvents()
-        assert win.page_rooms.model.rowCount() == 1, "Tìm kiếm không dấu thất bại trên bảng"
+        assert win.page_rooms.model.data_row_count() == 1, "Tìm kiếm không dấu thất bại trên bảng"
         win.search.setText("")
         win.page_rooms.set_text("")
         # lọc trạng thái

@@ -69,13 +69,13 @@ def _finish_selftest(app, win, mgr, db, log) -> None:
         # 3) trang tòa nhà
         win.navigate("buildings")
         app.processEvents()
-        check("Trang tòa nhà hiển thị thẻ",
-              len(win.page_buildings._cards) >= 10, str(len(win.page_buildings._cards)))
+        n_bld = win.page_buildings._model.data_row_count()
+        check("Trang tòa nhà hiển thị bảng", n_bld >= 10, str(n_bld))
 
         # 4) bảng phòng + tìm kiếm không dấu
         win.navigate("rooms")
         app.processEvents()
-        rows = win.page_rooms.model.rowCount()
+        rows = win.page_rooms.model.data_row_count()
         check("Bảng phòng có dữ liệu", rows > 0, str(rows))
         n = len(mgr.rooms("nguyen thuong hien"))
         check("Tìm kiếm không dấu trả kết quả", n > 0, str(n))

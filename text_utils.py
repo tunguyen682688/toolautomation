@@ -323,13 +323,14 @@ def _money_near(n: str, anchors: tuple, after_len: int = 40) -> int:
 def parse_listing_text(text: str) -> dict:
     """Phân tích tin đăng thuê nhà dạng text tự do -> dict các trường của form.
 
-    Trả về dict có các khóa (giá trị rỗng/0 nếu không tìm thấy):
+    Trả về dict có các khóa (None nếu không tách được -> "Chưa biết"):
     house_number, street, ward, district, price, deposit, room_type, area,
     floor, capacity, ev_support, pet_policy, owner_phone, notes
     """
     out = {k: "" for k in ("house_number", "street", "ward", "district", "room_type",
                            "area", "floor", "capacity", "pet_policy", "owner_phone", "notes")}
-    out.update({"price": 0, "deposit": 0, "ev_support": 0})
+    # không tách được -> None (Chưa biết), KHÔNG được gán 0 (sẽ thành "Không")
+    out.update({"price": None, "deposit": None, "ev_support": None})
     if not text or not str(text).strip():
         return out
 
@@ -351,10 +352,10 @@ def parse_listing_text(text: str) -> dict:
             mm = _MONEY_PLAIN_RE.search(n)
             if mm:
                 price = int(mm.group(1))
-    out["price"] = price
+    out["price"] = price or None      # không tách được -> None (Chưa biết), không phải 0
 
     # ---- tiền cọc: sau từ 'coc' / 'dat coc'
-    out["deposit"] = _money_near(n, ("coc", "dat coc"))
+    out["deposit"] = _money_near(n, ("coc", "dat coc")) or None
 
     # ---- dạng phòng
     for pat, label in _ROOM_TYPE_PATTERNS:

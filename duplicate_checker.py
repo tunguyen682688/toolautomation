@@ -91,10 +91,14 @@ def fingerprint(payload: Dict[str, Any]) -> str:
     parts = []
     for k in FINGERPRINT_FIELDS:
         v = payload.get(k, "")
-        if k in ("price", "deposit"):
-            v = int(v or 0)
-        elif k in ("surveyed", "ev_support"):
-            v = int(bool(v))
+        if k in ("price", "deposit", "surveyed", "ev_support"):
+            # phân biệt NULL (Chưa biết) với 0 (Không) -> "?" cho giá trị chưa rõ
+            if v is None or v == "":
+                v = "?"
+            elif k in ("surveyed", "ev_support"):
+                v = str(int(bool(v)))
+            else:
+                v = int(v or 0)
         else:
             v = tu.norm_key(v) if k in ("house_number", "street", "unit_code", "room_code") else tu.norm(v)
         parts.append(f"{k}={v}")
@@ -220,7 +224,8 @@ class DuplicateChecker:
                     kind="similar", severity="warn",
                     message=(f"Nghi ngờ trùng căn hộ cùng tòa: '{other.get('unit_code') or other.get('room_code')}' "
                              f"(trạng thái: {RoomStatusLabel(other.get('status'))}, "
-                             f"giá {tu.format_money(other.get('price'))}đ)."),
+                             + (f"giá {tu.format_money(other.get('price'))}đ)."
+                                if other.get("price") not in (None, "") else "giá chưa rõ).")),
                     room_id=other["id"], building_id=building["id"], room=other,
                 ))
         return res
@@ -370,13 +375,12 @@ class DuplicateChecker:
             b = self._norm_val(pf, existing.get(ef))
             if a and a != b:
                 diffs.append(label.get(pf, pf))
-        # trạng thái / khảo sát
+        # trạng thái
         if payload.get("status") and RoomStatusKey(payload.get("status")) != existing.get("status"):
             diffs.append("Trạng thái")
-        if payload.get("surveyed") is not None and bool(payload.get("surveyed")) != bool(existing.get("surveyed")):
-            diffs.append("Khảo sát")
-        if payload.get("ev_support") is not None and bool(payload.get("ev_support")) != bool(existing.get("ev_support")):
-            diffs.append("Xe điện")
+        # lưu ý: surveyed/ev_support đã nằm trong vòng COMPARE_MAP ở trên -
+        # _norm_val phân biệt None ("" = Chưa biết) vs 0 ("0" = Không) -> không cần so tay,
+        # so tay kiểu bool() cũ còn làm nhãn "Xe điện"/"Khảo sát" xuất hiện 2 lần.
         return diffs
 
     def _same_significant(self, payload: Dict, existing: Dict) -> bool:
@@ -401,10 +405,16 @@ class DuplicateChecker:
         if payload.get("status"):
             if RoomStatusKey(payload.get("status")) != existing.get("status"):
                 return False
-        if payload.get("ev_support") is not None and bool(payload.get("ev_support")) != bool(existing.get("ev_support")):
-            return False
-        if payload.get("surveyed") is not None and bool(payload.get("surveyed")) != bool(existing.get("surveyed")):
-            return False
+        # 3 trạng thái: payload nói RÕ (0/1) mà bản ghi hiện có khác (kể cả NULL=Chưa biết)
+        # -> không phải "trùng hoàn toàn". Payload None -> bỏ qua (chưa rõ thì không kết luận).
+        for f in ("ev_support", "surveyed"):
+            pv = payload.get(f)
+            if pv is None:
+                continue
+            ev = existing.get(f)
+            na, nb = 1 if pv else 0, (None if ev is None else (1 if ev else 0))
+            if na != nb:
+                return False
         return True
 
     @staticmethod

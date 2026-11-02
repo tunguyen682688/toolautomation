@@ -175,7 +175,8 @@ class PreviewModel(QAbstractTableModel):
             "Mã phòng": p.get("room_code") or "",
             "Địa chỉ": addr,
             "Số căn": p.get("unit_code") or "",
-            "Giá": tu.format_money(p.get("price") or 0),
+            "Giá": ("Chưa biết" if p.get("price") in (None, "")
+                    else tu.format_money(p.get("price"))),
             "Trạng thái": p.get("status_text") or "",
             "Lý do": it.reason,
         }

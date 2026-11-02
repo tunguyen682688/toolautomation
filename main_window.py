@@ -55,10 +55,12 @@ class SearchPopupReal(QListView):
         m.setColumnCount(1)
         for it in items:
             st = it.get("status", "")
+            ip = it.get("price")
             item = QStandardItem(
                 f"● {it.get('room_code') or '(chưa có mã)'}   ·   {it.get('address', '')}\n"
-                f"   {status_label(st)} · {tu.format_money(it.get('price'))} ₫ · "
-                f"{it.get('room_type') or '—'} · {it.get('unit_code') or '—'}")
+                f"   {status_label(st)} · "
+                + (f"{tu.format_money(ip)} ₫" if ip not in (None, "") else "Chưa biết")
+                + f" · {it.get('room_type') or '—'} · {it.get('unit_code') or '—'}")
             item.setData(it, Qt.UserRole)
             from PySide6.QtGui import QColor, QFont
             item.setForeground(QColor(theme.c("text")))

@@ -33,17 +33,27 @@ def _field_value(field: str, room: Dict[str, Any], building: Dict[str, Any]) -> 
     if field == "status":
         return RoomStatus.label(room.get("status", "new"))
     if field == "surveyed":
-        return "Đã KS 📸" if room.get("surveyed") else "Chưa KS"
+        v = room.get("surveyed")
+        if v is None:
+            return "Chưa biết"        # NULL = chưa hỏi -> Excel cũng phải nói rõ
+        return "Đã KS 📸" if v else "Chưa KS"
     if field in ("house_number", "street", "ward", "district"):
         return bld(field) or ""
     if field in ("price", "deposit"):
-        return int(room.get(field) or 0)
+        v = room.get(field)
+        return "" if v is None else int(v)   # NULL = Chưa biết -> ô trống (không ghi 0 giả)
     if field == "ev_support":
-        return "Có sạc" if room.get("ev_support") else "Không"
+        v = room.get("ev_support")
+        if v is None:
+            return "Chưa biết"        # import đọc lại 'Chưa biết' -> None (3 trạng thái)
+        return "Có sạc" if v else "Không"
     if field == "pet_policy":
         return room.get("pet_policy") or ""
     if field == "foreign_guest":
-        return "Có 🌏" if room.get("foreign_guest") else "Không"
+        v = room.get("foreign_guest")
+        if v is None:
+            return "Chưa biết"
+        return "Có 🌏" if v else "Không"
     if field == "area":
         return room.get("area") or ""
     return room.get(field, "") if room.get(field) is not None else ""

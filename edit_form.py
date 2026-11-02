@@ -616,7 +616,8 @@ class RoomEditForm(QDialog):
             self.ed["status"] = QComboBox()
             for k in RoomStatus.ORDER:
                 self.ed["status"].addItem(f"● {RoomStatus.label(k)}", k)
-            self.ed["surveyed"] = QCheckBox("📸 Đã khảo sát (có ảnh/video)")
+            # 3 trạng thái như panel: None = Chưa biết, 1 = Đã KS, 0 = Chưa KS
+            self.ed["surveyed"] = self._tribune("📸 Đã khảo sát (có ảnh/video)")
             self.ed["notes"] = QPlainTextEdit()
             self.ed["notes"].setMinimumHeight(72)
             self.ed["notes"].setPlaceholderText(
@@ -647,21 +648,18 @@ class RoomEditForm(QDialog):
         return cmb
 
     def _line_with_unknown(self, placeholder: str = "") -> tuple:
-        """Ô nhập kèm checkbox 'Chưa biết'. Trả về (line_edit, checkbox)."""
-        container = QWidget()
-        container.setObjectName("UnknownContainer")
-        container.setStyleSheet("background:transparent;")
-        h = QHBoxLayout(container)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(6)
+        """Ô nhập kèm checkbox 'Chưa biết'. Trả về (line_edit, checkbox).
+
+        KHÔNG bọc trong QWidget container riêng: container không có parent sẽ
+        bị garbage-collect ngay khi hàm trả về -> hủy luôn (layout nhận quyền
+        sở hữu) ô nhập/checkbox con -> "Internal C++ object already deleted".
+        Hai widget thêm thẳng vào layout của nhóm (mỗi widget một ô lưới).
+        """
         ed = self._line(placeholder)
         chk = QCheckBox("Chưa biết")
         chk.setObjectName("UnknownChk")
         chk.setStyleSheet("font-size:11px; background:transparent;")
         chk.setToolTip("Chưa rõ thông tin cần hỏi chủ nhà")
-        h.addWidget(ed)
-        h.addWidget(chk)
-        h.addStretch(1)
 
         def _toggle(checked):
             ed.setDisabled(checked)
@@ -702,7 +700,11 @@ class RoomEditForm(QDialog):
                 if chk_key in self.ed and self.ed[chk_key].isChecked():
                     continue
                 v = r.get(key, "")
-                if v is None:
+                # NULL = Chưa biết; giá/cọc = 0 (dữ liệu cũ trước khi có
+                # trạng thái 3 chiều) cũng coi là CHƯA RÕ -> tick "Chưa biết"
+                unknown = v is None or (
+                    key in r and key in ("price", "deposit") and v == 0)
+                if unknown:
                     # đánh dấu chưa biết
                     if chk_key in self.ed:
                         self.ed[chk_key].setChecked(True)
@@ -720,16 +722,15 @@ class RoomEditForm(QDialog):
                     else:
                         i = w.findData(v)
                         w.setCurrentIndex(max(0, i))
+                elif key in ("ev_support", "foreign_guest", "surveyed"):
+                    # tribune 3 trạng thái: None = Chưa biết, 1/True = Có, 0/False = Không
+                    v = r.get(key)
+                    idx = 0 if v is None else (1 if (v == 1 or v is True) else 2)
+                    w.setCurrentIndex(idx)
                 else:
                     w.setCurrentText(str(r.get(key, "") or ""))
             elif isinstance(w, QCheckBox):
-                if key == "surveyed":
-                    w.setChecked(bool(r.get("surveyed")))
-            elif key in ("ev_support", "foreign_guest"):
-                # tribune combo: None|True|False
-                v = r.get(key)
-                idx = 0 if v is None else (1 if v == 1 or v is True else 2)
-                w.setCurrentIndex(idx)
+                pass   # checkbox lót (unknown) đã được set khi seed ô QLineEdit tương ứng
             elif isinstance(w, QPlainTextEdit):
                 w.setPlainText(str(r.get("notes", "") or ""))
             elif isinstance(w, StarRating):
@@ -1082,9 +1083,10 @@ class RoomEditForm(QDialog):
             notes = (notes + " | " if notes else "") + f"Chính sách: {pet_note}"
         status_key = self.ed["status"].currentData() or "new"
 
-        # tribune 3-state: None/True/False
+        # tribune 3-state: None/True/False -> None | 1 | 0 (None = Chưa biết)
         ev = self.ed["ev_support"].currentData()
         fg = self.ed["foreign_guest"].currentData()
+        sv = self.ed["surveyed"].currentData()
 
         return {
             "house_number": txt("house_number"),
@@ -1110,7 +1112,7 @@ class RoomEditForm(QDialog):
             "notes": notes,
             "status": status_key,
             "status_text": RoomStatus.label(status_key),
-            "surveyed": 1 if self.ed["surveyed"].isChecked() else 0,
+            "surveyed": None if sv is None else (1 if sv is True else 0),
         }
 
     def _save(self, more: bool = False):

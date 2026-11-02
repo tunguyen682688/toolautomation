@@ -296,12 +296,35 @@ def cell(row_cells: List[Any], mapping: Dict[str, int], field_name: str) -> Any:
     return v
 
 
+def tri_parse_survey(v: Any) -> Optional[int]:
+    """Excel cột Khảo Sát -> 1 | 0 | None.
+
+    Trống hoặc 'Chưa biết' -> None (đang hỏi); 'Đã KS ...' -> 1; 'Chưa KS' -> 0.
+    (parse_survey() ép mọi thứ không phải 'đã...' về False -> phải tách ô trống riêng.)
+    """
+    if v is None:
+        return None
+    if isinstance(v, str):
+        s = v.strip()
+        if not s or tu.norm(s) == "chua biet":
+            return None
+        return 1 if tu.parse_survey(s) else 0
+    return 1 if v else 0
+
+
+def tri_parse_yes_no(v: Any) -> Optional[int]:
+    """Excel cột Yes/No (Xe điện...) -> 1 | 0 | None (trống/không đọc được = Chưa biết)."""
+    b = tu.parse_yes_no(v)
+    return None if b is None else (1 if b else 0)
+
+
 def room_payload_from_row(row: Dict[str, Any], mapping: Dict[str, int]) -> Dict[str, Any]:
     """Chuyển 1 dòng Excel -> payload phòng (đã chuẩn hoá kiểu dữ liệu)."""
     c = row["cells"]
     status_raw = cell(c, mapping, "status")
-    ev_raw = cell(c, mapping, "ev_support")
     survey_raw = cell(c, mapping, "surveyed")
+    price_raw = cell(c, mapping, "price")
+    deposit_raw = cell(c, mapping, "deposit")
     payload = {
         "excel_row": row["excel_row"],
         "house_number": cell(c, mapping, "house_number"),
@@ -315,11 +338,13 @@ def room_payload_from_row(row: Dict[str, Any], mapping: Dict[str, int]) -> Dict[
         # cột không có trong file -> để None (KHÔNG được tự ghi đè dữ liệu cũ khi cập nhật)
         "status": RoomStatus.from_text(status_raw) if "status" in mapping else None,
         "status_text": str(status_raw or ""),
-        "surveyed": (bool(tu.parse_survey(survey_raw)) if "surveyed" in mapping else None),
-        "price": tu.normalize_price(cell(c, mapping, "price")),
-        "deposit": tu.normalize_price(cell(c, mapping, "deposit")),
+        # 3 trạng thái: None = Chưa biết, 1 = Có/Đã KS, 0 = Không/Chưa KS
+        "surveyed": (tri_parse_survey(survey_raw) if "surveyed" in mapping else None),
+        "price": tu.normalize_price(price_raw) if price_raw not in (None, "") else None,
+        "deposit": tu.normalize_price(deposit_raw) if deposit_raw not in (None, "") else None,
         "capacity": cell(c, mapping, "capacity"),
-        "ev_support": (bool(tu.parse_yes_no(ev_raw)) if "ev_support" in mapping else None),
+        "ev_support": (tri_parse_yes_no(cell(c, mapping, "ev_support"))
+                       if "ev_support" in mapping else None),
         "pet_policy": tu.parse_pet_policy(cell(c, mapping, "pet_policy")),
         "rating": cell(c, mapping, "rating"),
         "owner_phone": cell(c, mapping, "owner_phone"),
@@ -329,9 +354,9 @@ def room_payload_from_row(row: Dict[str, Any], mapping: Dict[str, int]) -> Dict[
         "stt": cell(c, mapping, "stt"),
     }
     if "price" not in mapping:
-        payload["price"] = 0
+        payload["price"] = None   # cột không có trong file -> để Chưa biết, không tự đoán 0
     if "deposit" not in mapping:
-        payload["deposit"] = 0
+        payload["deposit"] = None
     return payload
 
 

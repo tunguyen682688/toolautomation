@@ -36,6 +36,40 @@ ROOM_INSERT_FIELDS = [
 ]
 
 
+# ------------------------------------------------------------------ 3 trạng thái
+# NGUYÊN TẮC: 1 = Có, 0 = Không, None = CHƯA BIẾT (đang hỏi chủ nhà).
+# Tuyệt đối KHÔNG ép None -> 0/'' (trước đây "Chưa biết" bị biến thành "Không").
+def tri_state(v) -> Optional[int]:
+    """Chuẩn hoá về 1 | 0 | None."""
+    if v is None:
+        return None
+    if isinstance(v, str) and not v.strip():
+        return None
+    return 1 if v else 0
+
+
+def opt_int(v) -> Optional[int]:
+    """Số nguyên hoặc None (Chưa biết) - chuỗi rỗng -> None, không ép về 0."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        v = v.strip()
+        if not v:
+            return None
+    try:
+        return int(round(float(v)))
+    except (TypeError, ValueError):
+        return None
+
+
+def opt_text(v) -> Optional[str]:
+    """Chuỗi hoặc None (Chưa biết) - '' hợp nhất với NULL để hiển thị/seed nhất quán."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
+
+
 class DuplicateError(Exception):
     """Ném ra khi phát hiện trùng - kèm toàn bộ thông tin để UI cảnh báo."""
 
@@ -329,23 +363,23 @@ class InventoryManager:
             "building_id": building["id"],
             "room_code": str(payload.get("room_code") or "").strip(),
             "unit_code": str(payload.get("unit_code") or "").strip(),
-            "floor": str(payload.get("floor") or "").strip(),
+            "floor": opt_text(payload.get("floor")),
             "room_type": str(payload.get("room_type") or "").strip(),
             "status": payload.get("status") or "new",
-            "surveyed": 1 if payload.get("surveyed") else 0,
-            "price": int(payload.get("price") or 0),
-            "deposit": int(payload.get("deposit") or 0),
-            "capacity": str(payload.get("capacity") or "").strip(),
-            "ev_support": 1 if payload.get("ev_support") else 0,
-            "pet_policy": str(payload.get("pet_policy") or "").strip(),
+            "surveyed": tri_state(payload.get("surveyed")),
+            "price": opt_int(payload.get("price")),
+            "deposit": opt_int(payload.get("deposit")),
+            "capacity": opt_text(payload.get("capacity")),
+            "ev_support": tri_state(payload.get("ev_support")),
+            "pet_policy": opt_text(payload.get("pet_policy")),
             "pet_ok": 1 if tu.parse_pet_policy(payload.get("pet_policy")) == "Cho nuôi" else 0,
-            "rating": str(payload.get("rating") or "").strip(),
+            "rating": opt_text(payload.get("rating")),
             "owner_phone": str(payload.get("owner_phone") or building.get("phone") or "").strip(),
             "zalo_group": str(payload.get("zalo_group") or building.get("zalo_group") or "").strip(),
             "drive_link": str(payload.get("drive_link") or "").strip(),
             "notes": str(payload.get("notes") or "").strip(),
-            "foreign_guest": int(payload.get("foreign_guest") or 0),
-            "area": str(payload.get("area") or "").strip(),
+            "foreign_guest": tri_state(payload.get("foreign_guest")),
+            "area": opt_text(payload.get("area")),
             "external_ref": str(payload.get("external_ref") or "").strip(),
             "sync_state": "pending",
             "version": 1,
@@ -681,14 +715,22 @@ class InventoryManager:
                 if int(a or 0) != int(b or 0):
                     changes[pf] = int(a or 0)
             elif pf == "ev_support":
-                if bool(a) != bool(b):
-                    changes[pf] = 1 if a else 0
+                # 3 trạng thái: import chỉ ghi đè khi Excel nói RÕ (Có/Không);
+                # payload None (trống) đã bị continue ở trên -> không xoá dữ liệu cũ
+                na, nb = 1 if a else 0, (None if b is None else (1 if b else 0))
+                if na != nb:
+                    changes[pf] = na
             elif DuplicateChecker._norm_val(pf, a) != DuplicateChecker._norm_val(pf, b):
                 changes[pf] = a
         if payload.get("status") and RoomStatus.from_text(payload["status"]) != existing.get("status"):
             changes["status"] = RoomStatus.from_text(payload["status"])
-        if payload.get("surveyed") is not None and bool(payload.get("surveyed")) != bool(existing.get("surveyed")):
-            changes["surveyed"] = 1 if payload["surveyed"] else 0
+        if payload.get("surveyed") is not None:
+            # phân biệt 0 (Chưa KS) với None (Chưa biết) ở bản ghi hiện có
+            na = 1 if payload["surveyed"] else 0
+            b = existing.get("surveyed")
+            nb = None if b is None else (1 if b else 0)
+            if na != nb:
+                changes["surveyed"] = na
         if payload.get("pet_policy") and tu.parse_pet_policy(payload["pet_policy"]) != \
                 ("Cho nuôi" if existing.get("pet_ok") else "Không nuôi" if existing.get("pet_policy") else ""):
             changes["pet_policy"] = payload["pet_policy"]

@@ -20,7 +20,7 @@ mà không bao giờ ảnh hưởng dữ liệu thật (xem mục 1.3).
 | [2. Cấu hình Google API](#2-cấu-hình-google-api-chi-tiết-có-thể-làm-sau) | 4 bước, các sheet quản lý, giới hạn quota |
 | [3. Phím tắt](#3-phím-tắt) | Bàn phím tắt |
 | [4. Dữ liệu mẫu kiểm thử](#4-dữ-liệu-mẫu-kiểm-thử) | 2 file Excel mẫu |
-| [5. Bộ kiểm thử](#5-bộ-kiểm-thử-chạy-được-ngay-không-cần-mạng) | 18 backend + 8 giao diện + selftest + 10 tình huống bắt buộc |
+| [5. Bộ kiểm thử](#5-bộ-kiểm-thử-chạy-được-ngay-không-cần-mạng) | 20 backend + 5 phân biệt 3 trạng thái + 8 giao diện + selftest + 10 tình huống bắt buộc |
 | [6. Nguyên tắc quan trọng](#6-nguyên-tắc-quan-trọng-của-phần-mềm) | Offline-first, chống trùng, đồng bộ an toàn |
 | [7. Xử lý sự cố](#7-xử-lý-sự-cố-thường-gặp) | Bảng lỗi thường gặp |
 | [8. Build bản Windows (.exe)](#8-build-bản-windows-exe-cho-người-dùng-cuối) | Đóng gói, chạy trên máy khác, selftest |
@@ -129,7 +129,7 @@ toolautomation/
 ├── start.bat             ← tạo venv + cài thư viện + chạy (hỗ trợ --env)
 ├── build.bat             ← build bản Windows (.exe) + selftest
 ├── KhoPhongCanHo.spec    ← cấu hình PyInstaller
-└── tests/                ← bộ kiểm thử (18 + 8 tình huống giao diện)
+└── tests/                ← bộ kiểm thử (20 + 5 + 8 tình huống)
 ```
 
 ---
@@ -217,15 +217,28 @@ Lần chạy đầu nếu DB trống, chương trình sẽ **đề nghị nhập
 
 ## 5. Bộ kiểm thử (chạy được ngay, không cần mạng)
 
-### 5.1. Kiểm thử backend — 18 tình huống
+### 5.1. Kiểm thử backend — 20 tình huống
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'     # console Windows cp1252 -> tránh lỗi hiển thị UTF-8
 python tests\run_checks.py
-# kỳ vọng: KẾT QUẢ: 18/18 PASS
+# kỳ vọng: KẾT QUẢ: 20/20 PASS
 ```
 
-### 5.2. Kiểm thử giao diện — 8 tình huống (chạy nền được)
+### 5.2. Kiểm thử phân biệt 3 trạng thái (Chưa biết / Có / Không) — 5 tình huống
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+$env:QT_QPA_PLATFORM='offscreen'
+python tests\tri_state_check.py
+# kỳ vọng: TRI-STATE: 5/5 PASS
+```
+
+Phủ: round-trip None qua DB (NULL thật), update Có↔Không↔Chưa biết, xuất→nhập Excel
+giữ nguyên 3 trạng thái, search_norm/fingerprint/hiển thị phân biệt rõ, migration DB cũ
+cột NOT NULL → build lại bảng (chuỗi rỗng & giá 0 cũ → NULL, dữ liệu 0/1 đã rõ giữ nguyên).
+
+### 5.3. Kiểm thử giao diện — 8 tình huống (chạy nền được)
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'
@@ -234,7 +247,7 @@ python tests\ui_smoke.py
 # kỳ vọng: UI: 8/8 PASS
 ```
 
-### 5.3. Selftest — kiểm tra nhanh 12 đầu việc (có ở cả nguồn lẫn bản build)
+### 5.4. Selftest — kiểm tra nhanh 12 đầu việc (có ở cả nguồn lẫn bản build)
 
 ```powershell
 python main.py --selftest                  # chạy từ nguồn
@@ -247,7 +260,7 @@ nhập Excel mẫu → mở Dashboard/Tòa nhà/Bảng phòng → tìm kiếm kh
 kiểm tra env được tách riêng. Exit code `0` = tốt, `1` = lỗi; chi tiết ghi vào
 `data/<env>/selftest_result.txt`. Đây là bước cuối của `build.bat` (build fail nếu selftest fail).
 
-### 5.4. 10 tình huống kiểm thử bắt buộc (đối chiếu với đặc tả)
+### 5.5. 10 tình huống kiểm thử bắt buộc (đối chiếu với đặc tả)
 
 | # | Tình huống | Cách kiểm | Kỳ vọng |
 |---|---|---|---|
@@ -379,6 +392,7 @@ chi tiết ghi vào `data\<env>\selftest_result.txt`.
 
 | Ngày | Thay đổi |
 |---|---|
+| 2026-11-02 | **Phân biệt 3 trạng thái Chưa biết/Có/Không thật sự trong dữ liệu (NULL, không ép về 0).** Nguyên tắc: `1` = Có, `0` = Không, `NULL` = **Chưa biết** (đang hỏi chủ nhà). **Database**: schema `rooms` bỏ `NOT NULL` ở 10 cột (`floor/area/capacity/rating/pet_policy/price/deposit/surveyed/ev_support/foreign_guest`) + `_migrate_nullable_rooms()` tự build lại bảng cho DB cũ (copy → rename trong 1 transaction, có phục hồi `rooms_old_mig`; chuỗi rỗng & price/deposit=0 cũ → NULL, 0/1 đã rõ giữ nguyên; sửa bug `"rooms" not in info` — `info` là cột PRAGMA nên migration luôn bị bỏ qua). **Import** (`tri_parse_survey`/`tri_parse_yes_no`): ô trống → None, fill-only (payload None không ghi đè dữ liệu cũ). **Export**: tri-state → "Chưa biết", price/deposit NULL → ô trống (không ghi 0 giả). **Chống trùng**: fingerprint dùng `?` phân biệt None vs 0; `_same_significant`/`_diff_fields` so tri-state (bỏ 2 dòng so tay bool gây nhãn trùng). **Form**: checkbox "Chưa biết" cho số (tầng/diện tích/giá/cọc/sức chứa — seed giá/cọc 0 cũ → tick), `surveyed` chuyển sang combo 3 trạng thái; sửa **bug GC** `_line_with_unknown` (QWidget container không parent bị GC → "Internal C++ object already deleted", gây 3 FAIL UI). **Bảng/panel**: "Chưa biết"/"✕ Không"/"❔ Chưa biết", sửa ô trống → None. Hiển thị giá ở bảng/popup/tòa/chi tiết đều nói rõ "Chưa biết" thay vì "0 ₫". Test mới `tests/tri_state_check.py` (5/5). Kết quả: **backend 20/20 + tri-state 5/5 + UI 8/8 PASS**. |
 | 2026-11-01 | **Bảng Tòa nhà kiểu bảng + phân cụm PHƯỜNG cho cả 2 danh sách.** Module mới `grouped_table.py` — `GroupedTableModel` (QAbstractTableModel có hàng tiêu đề nhóm xen giữa dòng dữ liệu: `rows` vẫn là dữ liệu thuần, `_disp` ánh xạ dòng hiển thị → hàng nhóm chỉ chọn được Enabled, delegate `paint_group_row` vẽ nền full-width + viền trái accent + meta căn phải, giữ nguyên thứ tự relevance bên trong nhóm). Trang **Tòa nhà bỏ lưới thẻ → bảng QTableView** giống trang Phòng (11 cột: mã/**số nhà**/**tên đường**/phường/quận/chủ nhà/SĐT/Tổng·Trống·Cọc·Thuê·Sắp trống, cột tên đường co giãn, click chọn → panel phòng bên phải, double-click mở bảng đầy đủ). **Cả 2 bảng phân cụm theo phường** (checkbox "🏘 Phân cụm phường", bật mặc định): mỗi phường một hàng `📍 P.xx · quận · N phòng · X trống`; tòa nhà gộp khoá `(quận, phường)` để tránh trùng tên phường giữa 2 quận. Test: backend 20/20 + UI 8/8 + selftest 12/12 PASS, render 1920×1080 cả 2 theme. |
 | 2026-11-01 | **Panel chi tiết phòng: nút hành động hàng ngang chỉ icon + tooltip + khảo sát nhanh mở rộng.** Các nút action (Sửa chi tiết, Xem tòa nhà, Gọi điện, Zalo, Drive, Lịch sử, Xóa) chuyển thành `QToolButton` 44×44px chỉ hiển thị icon, toàn bộ mô tả đưa vào tooltip; sắp xếp trên 1 hàng ngang với stretch cuối. Thêm 5 combo khảo sát nhanh (Có/Không/Chưa biết): Khảo sát, Xe điện, Khách NNGO, Pet và **Đánh giá (★1…★5 sao)** — chọn xong gọi `update_room` ngay, hỗ trợ giá trị `None`/`""` = "chưa biết" (chưa hỏi khi chưa khảo sát tòa nhà). Chip hiển thị tự đồng bộ theo dữ liệu. Test: backend 20/20 + UI 8/8 PASS. |
 | 2026-11-01 | **Sơ lược ảnh đại diện trong panel chi tiết phòng.** Widget `CoverPreview` (trong `media_panel.py`) hiển thị ảnh đầu tiên của phòng (co giữ tỉ lệ, bo góc) với badge đếm `📷 N ảnh · ▶ M video` ở góc dưới bên phải; bấm để mở ảnh đầu tiên bằng trình xem mặc định, chuột phải mở thư mục ảnh. Không có ảnh → placeholder hướng dẫn bấm ＋ Thêm. Nằm ngay đầu panel chi tiết (trước ô Giá/Cọc/Diện tích), giúp nhân viên biết ngay căn trông như nào. |

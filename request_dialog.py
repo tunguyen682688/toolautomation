@@ -253,7 +253,8 @@ class RequestDialog(QDialog):
             " background:transparent;")
         code.setMinimumWidth(76)
         h.addWidget(code)
-        price = QLabel(f"{tu.format_money(r.get('price'))}₫")
+        pr = r.get("price")
+        price = QLabel(f"{tu.format_money(pr)}₫" if pr not in (None, "") else "Chưa biết")
         price.setStyleSheet(
             f"font-weight:800; font-size:12.5px; color:{theme.c('accent')};"
             " background:transparent;")

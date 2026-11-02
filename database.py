@@ -27,6 +27,56 @@ log = get_logger("db")
 
 SCHEMA_VERSION = 3
 
+# DDL bảng rooms + index của nó được tách riêng: khi migration phát hiện DB cũ
+# còn NOT NULL (không phân biệt được "Chưa biết") sẽ build lại bảng theo DDL này.
+# Nguyên tắc 3 trạng thái: 1/0 = Có/Không, NULL = Chưa biết (đang hỏi chủ nhà).
+_ROOMS_DDL = """CREATE TABLE IF NOT EXISTS rooms (
+    id            TEXT PRIMARY KEY,
+    building_id   TEXT NOT NULL,
+    room_code     TEXT NOT NULL DEFAULT '',
+    room_code_key TEXT NOT NULL DEFAULT '',
+    unit_code     TEXT NOT NULL DEFAULT '',
+    unit_key      TEXT NOT NULL DEFAULT '',
+    floor         TEXT,              -- NULL = Chưa biết
+    room_type     TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'new',
+    surveyed      INTEGER,           -- 1 = Đã khảo sát, 0 = Chưa, NULL = Chưa biết
+    price         INTEGER,           -- NULL = Chưa biết
+    deposit       INTEGER,           -- NULL = Chưa biết
+    area          TEXT,              -- NULL = Chưa biết
+    capacity      TEXT,              -- NULL = Chưa biết
+    ev_support    INTEGER,           -- 1 = Có sạc, 0 = Không, NULL = Chưa biết
+    pet_policy    TEXT,              -- NULL = Chưa biết (giữ nguyên văn bản gốc từ Excel)
+    pet_ok        INTEGER NOT NULL DEFAULT 0, --1 = cho nuôi (dùng cho lọc/tìm kiếm)
+    rating        TEXT,              -- NULL = Chưa đánh giá
+    owner_phone   TEXT NOT NULL DEFAULT '',
+    zalo_group    TEXT NOT NULL DEFAULT '',
+    drive_link    TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    foreign_guest INTEGER,           -- 1 = Nhận khách NNGO, 0 = Không, NULL = Chưa biết
+    needs_verify  INTEGER NOT NULL DEFAULT 0,
+    search_norm   TEXT NOT NULL DEFAULT '',
+    external_ref  TEXT NOT NULL DEFAULT '',
+    sync_state    TEXT NOT NULL DEFAULT 'local',
+    version       INTEGER NOT NULL DEFAULT 0,
+    deleted       INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL DEFAULT '',
+    updated_at    TEXT NOT NULL DEFAULT '',
+    updated_by    TEXT NOT NULL DEFAULT ''
+);
+"""
+
+_ROOM_INDEX_DDL = """-- Khoá nhận diện căn hộ = Mã tòa nhà (địa chỉ) + Số căn thực tế (fallback: mã phòng)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_rooms_identity
+    ON rooms(building_id, unit_key) WHERE deleted = 0 AND unit_key <> '';
+CREATE INDEX IF NOT EXISTS ix_rooms_building ON rooms(building_id);
+CREATE INDEX IF NOT EXISTS ix_rooms_status   ON rooms(status);
+CREATE INDEX IF NOT EXISTS ix_rooms_price    ON rooms(price);
+CREATE INDEX IF NOT EXISTS ix_rooms_code     ON rooms(room_code_key);
+CREATE INDEX IF NOT EXISTS ix_rooms_type     ON rooms(room_type);
+CREATE INDEX IF NOT EXISTS ix_rooms_updated  ON rooms(updated_at);
+"""
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS buildings (
     id            TEXT PRIMARY KEY,
@@ -56,50 +106,9 @@ CREATE TABLE IF NOT EXISTS buildings (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_buildings_address ON buildings(address_key) WHERE deleted = 0;
 CREATE INDEX IF NOT EXISTS ix_buildings_street ON buildings(street);
 
-CREATE TABLE IF NOT EXISTS rooms (
-    id            TEXT PRIMARY KEY,
-    building_id   TEXT NOT NULL,
-    room_code     TEXT NOT NULL DEFAULT '',
-    room_code_key TEXT NOT NULL DEFAULT '',
-    unit_code     TEXT NOT NULL DEFAULT '',
-    unit_key      TEXT NOT NULL DEFAULT '',
-    floor         TEXT NOT NULL DEFAULT '',
-    room_type     TEXT NOT NULL DEFAULT '',
-    status        TEXT NOT NULL DEFAULT 'new',
-    surveyed      INTEGER NOT NULL DEFAULT 0,
-    price         INTEGER NOT NULL DEFAULT 0,
-    deposit       INTEGER NOT NULL DEFAULT 0,
-    area          TEXT NOT NULL DEFAULT '',
-    capacity      TEXT NOT NULL DEFAULT '',
-    ev_support    INTEGER NOT NULL DEFAULT 0,
-    pet_policy    TEXT NOT NULL DEFAULT '',   -- GIỮ NGUYÊN văn bản gốc từ Excel
-    pet_ok        INTEGER NOT NULL DEFAULT 0, --1 = cho nuôi (dùng cho lọc/tìm kiếm)
-    rating        TEXT NOT NULL DEFAULT '',
-    owner_phone   TEXT NOT NULL DEFAULT '',
-    zalo_group    TEXT NOT NULL DEFAULT '',
-    drive_link    TEXT NOT NULL DEFAULT '',
-    notes         TEXT NOT NULL DEFAULT '',
-    foreign_guest INTEGER NOT NULL DEFAULT 0, --1 = phòng nhận khách nước ngoài
-    needs_verify  INTEGER NOT NULL DEFAULT 0,
-    search_norm   TEXT NOT NULL DEFAULT '',
-    external_ref  TEXT NOT NULL DEFAULT '',
-    sync_state    TEXT NOT NULL DEFAULT 'local',
-    version       INTEGER NOT NULL DEFAULT 0,
-    deleted       INTEGER NOT NULL DEFAULT 0,
-    created_at    TEXT NOT NULL DEFAULT '',
-    updated_at    TEXT NOT NULL DEFAULT '',
-    updated_by    TEXT NOT NULL DEFAULT ''
-);
--- Khoá nhận diện căn hộ = Mã tòa nhà (địa chỉ) + Số căn thực tế (fallback: mã phòng)
-CREATE UNIQUE INDEX IF NOT EXISTS ux_rooms_identity
-    ON rooms(building_id, unit_key) WHERE deleted = 0 AND unit_key <> '';
-CREATE INDEX IF NOT EXISTS ix_rooms_building ON rooms(building_id);
-CREATE INDEX IF NOT EXISTS ix_rooms_status   ON rooms(status);
-CREATE INDEX IF NOT EXISTS ix_rooms_price    ON rooms(price);
-CREATE INDEX IF NOT EXISTS ix_rooms_code     ON rooms(room_code_key);
-CREATE INDEX IF NOT EXISTS ix_rooms_type     ON rooms(room_type);
-CREATE INDEX IF NOT EXISTS ix_rooms_updated  ON rooms(updated_at);
+""" + _ROOMS_DDL + """
 
+""" + _ROOM_INDEX_DDL + """
 CREATE TABLE IF NOT EXISTS status_history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     room_id     TEXT NOT NULL,
@@ -231,10 +240,80 @@ class Database:
                         "ALTER TABLE rooms ADD COLUMN area TEXT NOT NULL DEFAULT ''")
             except sqlite3.OperationalError:
                 pass
+            # --- migration 3 trạng thái: DB cũ cột NOT NULL -> NULL được lưu (Chưa biết) ---
+            self._migrate_nullable_rooms()
             ver = self._conn.execute("PRAGMA user_version").fetchone()[0]
             if ver != SCHEMA_VERSION:
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             self._data_version += 1
+
+    # Các cột cho phép NULL = "Chưa biết" (3 trạng thái: 1 = Có, 0 = Không, NULL = Chưa biết)
+    NULLABLE_COLS = ("floor", "surveyed", "price", "deposit", "area", "capacity",
+                     "ev_support", "pet_policy", "rating", "foreign_guest")
+    # Dữ liệu cũ: chuỗi rỗng ở các cột này cũng nghĩa là chưa rõ -> hợp nhất về NULL
+    _NULLIF_EMPTY = ("floor", "area", "capacity", "pet_policy", "rating")
+    # Dữ liệu cũ: price/deposit = 0 (ô Excel trống trước đây bị ép thành 0) -> coi là chưa biết
+    _ZERO_UNKNOWN = ("price", "deposit")
+
+    def _migrate_nullable_rooms(self) -> None:
+        """DB cũ có NOT NULL -> không phân biệt được "Chưa biết" (NULL) vs 0/''.
+
+        Build lại bảng theo _ROOMS_DDL (nới NULL) và chuyển dữ liệu:
+        - chuỗi rỗng ở floor/area/capacity/pet_policy/rating -> NULL
+        - price/deposit = 0 (ô trống Excel trước đây) -> NULL
+        - 0/1 ở surveyed/ev_support/foreign_guest GIỮ NGUYÊN (đã rõ Có/Không)
+
+        An toàn: copy sang bảng mới trước, chỉ 2 lệnh đổi tên + drop nằm trong
+        1 transaction -> ngừng giữa chừng là rollback, DB cũ còn nguyên.
+        """
+        info = {r[1]: r for r in self._conn.execute("PRAGMA table_info(rooms)").fetchall()}
+
+        def has_table(name: str) -> bool:
+            return bool(self._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
+
+        # phục hồi: lần trước dừng giữa chừng (bảng cũ đã bị đổi tên)
+        if not info or not has_table("rooms"):
+            if has_table("rooms_old_mig"):
+                self._conn.execute("ALTER TABLE rooms_old_mig RENAME TO rooms")
+                info = {r[1]: r for r in
+                        self._conn.execute("PRAGMA table_info(rooms)").fetchall()}
+            else:
+                return
+        needs = any(info.get(c) and info[c][3] for c in self.NULLABLE_COLS)  # [3] = notnull
+        if needs:
+            log.info("Migration: build lại bảng rooms cho phép NULL (3 trạng thái Chưa biết/Có/Không)")
+            self._conn.execute("DROP TABLE IF EXISTS rooms_new_mig")
+            self._conn.execute(
+                _ROOMS_DDL.replace("IF NOT EXISTS rooms", "IF NOT EXISTS rooms_new_mig", 1))
+            old_cols = set(info.keys())
+            cols = [r[1] for r in self._conn.execute(
+                "PRAGMA table_info(rooms_new_mig)").fetchall() if r[1] in old_cols]
+
+            def sel(c: str) -> str:
+                if c in self._NULLIF_EMPTY:
+                    return f"NULLIF({c},'')"
+                if c in self._ZERO_UNKNOWN:
+                    return f"CASE WHEN {c} IS NULL OR {c}=0 THEN NULL ELSE {c} END"
+                return c
+
+            q = ",".join(cols)
+            self._conn.execute(
+                f"INSERT INTO rooms_new_mig({q}) SELECT {','.join(sel(c) for c in cols)} FROM rooms")
+            try:
+                self._conn.execute("BEGIN")
+                self._conn.execute("ALTER TABLE rooms RENAME TO rooms_old_mig")
+                self._conn.execute("ALTER TABLE rooms_new_mig RENAME TO rooms")
+                self._conn.execute("DROP TABLE rooms_old_mig")
+                self._conn.execute("COMMIT")
+            except Exception:
+                try:
+                    self._conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise
+        # đảm bảo index tồn tại (lần build trước có thể dừng sau khi đổi tên bảng)
+        self._conn.executescript(_ROOM_INDEX_DDL)
 
     def close(self) -> None:
         with self._lock:
@@ -707,7 +786,10 @@ def build_room_search_norm(room: Dict[str, Any], building: Optional[Dict[str, An
         room.get("room_code", ""), room.get("unit_code", ""), room.get("floor", ""),
         room.get("room_type", ""), room.get("status", ""), room.get("owner_phone", ""),
         room.get("capacity", ""), room.get("pet_policy", ""), room.get("rating", ""),
-        room.get("notes", ""), str(room.get("price", "")), str(room.get("deposit", "")),
+        room.get("notes", ""),
+        # price/deposit = NULL (Chưa biết) -> KHÔNG được biến thành chữ "None"
+        ("" if room.get("price") is None else str(room.get("price"))),
+        ("" if room.get("deposit") is None else str(room.get("deposit"))),
         b.get("house_number", ""), b.get("street", ""), b.get("ward", ""),
         b.get("district", ""), b.get("display", ""), b.get("phone", ""), b.get("owner_name", ""),
     ]

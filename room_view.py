@@ -132,15 +132,23 @@ class RoomTableModel(GroupedTableModel):
         if key == "status":
             return status_label(v)
         if key in ("price", "deposit"):
+            if v is None or v == "":
+                return "Chưa biết"      # NULL = Chưa biết (đang hỏi chủ nhà)
             return tu.format_money(v) + " ₫"
         if key == "area":
             return f"{v} m2" if v else "—"
         if key == "surveyed":
+            if v is None:
+                return "❔ Chưa biết"
             return "✅ Đã KS" if v else "Chưa KS"
         if key == "ev_support":
-            return "⚡ Có" if v else "—"
+            if v is None:
+                return "❓ Chưa biết"
+            return "⚡ Có" if v else "✕ Không"
         if key == "foreign_guest":
-            return "🌏 Có" if v else "—"
+            if v is None:
+                return "❓ Chưa biết"
+            return "🌏 Có" if v else "✕ Không"
         if key == "pet_policy":
             return v or "—"
         if key == "updated_at":
@@ -159,14 +167,15 @@ class RoomTableModel(GroupedTableModel):
             if st not in RoomStatus.LABEL or st == r.get("status"):
                 return False
             changes["status"] = st
-        elif key == "price":
-            changes["price"] = tu.normalize_price(value)
-            if changes["price"] == int(r.get("price") or 0):
+        elif key in ("price", "deposit"):
+            raw = str(value).strip()
+            # xoá trắng ô giá/cọc = đặt lại "Chưa biết" (None), không ép về 0
+            new_v = tu.normalize_price(raw) if raw else None
+            cur = r.get(key)
+            cur_n = None if cur in (None, "") else int(cur)
+            if new_v == cur_n:
                 return False
-        elif key == "deposit":
-            changes["deposit"] = tu.normalize_price(value)
-            if changes["deposit"] == int(r.get("deposit") or 0):
-                return False
+            changes[key] = new_v
         elif key == "room_code":
             changes["room_code"] = str(value).strip()
         elif key == "room_type":
@@ -888,10 +897,11 @@ class RoomPage(QWidget):
         self.cmb_d_status.setCurrentIndex(max(0, i))
         self.cmb_d_status.blockSignals(False)
 
-        # ---- 3 ô chỉ số
-        self.d_price_val.setText(f"{tu.format_money(r.get('price'))} ₫")
-        self.d_dep_val.setText(f"{tu.format_money(r.get('deposit'))} ₫")
-        self.d_area_val.setText(f"{r.get('area') or '—'} m2")
+        # ---- 3 ô chỉ số (NULL = Chưa biết -> nói rõ, không hiển thị "0 ₫" giả)
+        p, d = r.get("price"), r.get("deposit")
+        self.d_price_val.setText(f"{tu.format_money(p)} ₫" if p not in (None, "") else "Chưa biết")
+        self.d_dep_val.setText(f"{tu.format_money(d)} ₫" if d not in (None, "") else "Chưa biết")
+        self.d_area_val.setText(f"{r.get('area')} m2" if r.get("area") else "Chưa biết")
 
         # ---- chip tiện ích
         self.d_chip_ks.setVisible(bool(r.get("surveyed")))

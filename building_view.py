@@ -390,9 +390,10 @@ class RoomsInlinePanel(QFrame):
         for r in rooms:
             st = r.get("status", "")
             loai = r.get("room_type") or "(chưa rõ)"
+            pr = r.get("price")
             item = QStandardItem(
                 f"{r.get('room_code') or '(chưa có mã)'}   ·   {loai}   ·   "
-                f"{tu.format_money(r.get('price'))}₫")
+                + (f"{tu.format_money(pr)}₫" if pr not in (None, "") else "Chưa biết"))
             item.setToolTip(f"{status_label(st)} · {r.get('address') or ''}")
             item.setData(st, Qt.UserRole)
             item.setForeground(QColor(status_color(st)))

@@ -156,6 +156,13 @@ class ImageUpload(QWidget):
         btn_add.clicked.connect(self._add)
         row.addWidget(btn_add)
 
+        btn_copy = QPushButton("📋 Copy ảnh")
+        btn_copy.setObjectName("Chip")
+        btn_copy.setCursor(Qt.PointingHandCursor)
+        btn_copy.setToolTip("Copy ảnh đầu tiên vào clipboard để dán vào Zalo/Telegram")
+        btn_copy.clicked.connect(self._copy_image)
+        row.addWidget(btn_copy)
+
         btn_zalo = QPushButton("📂 Mở thư mục Zalo")
         btn_zalo.setObjectName("Chip")
         btn_zalo.setCursor(Qt.PointingHandCursor)
@@ -276,6 +283,21 @@ class ImageUpload(QWidget):
     def set_paths(self, paths: List[str]):
         self._paths = list(paths)
         self._refresh()
+
+    # ---------------------------------------------------------------- copy ảnh để gửi khách
+    def _copy_image(self):
+        """Copy ảnh đầu tiên vào clipboard để dán vào Zalo/Telegram."""
+        if not self._paths:
+            return
+        cb = QApplication.clipboard()
+        mime = QMimeData()
+        # copy đường dẫn file (Windows Explorer, Zalo, Telegram nhận được)
+        mime.setUrls([QUrl.fromLocalFile(p) for p in self._paths])
+        # đồng thời copy ảnh đầu tiên (dạng ảnh thuần để dán trực tiếp)
+        img = QImage(self._paths[0])
+        if not img.isNull():
+            mime.setImageData(img)
+        cb.setMimeData(mime)
 
 
 # ------------------------------------------------------------------ model địa chỉ cho QCompleter

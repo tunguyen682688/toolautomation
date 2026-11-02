@@ -229,6 +229,23 @@ CREATE TABLE IF NOT EXISTS customer_events (
 );
 CREATE INDEX IF NOT EXISTS ix_custev_customer ON customer_events(customer_id);
 CREATE INDEX IF NOT EXISTS ix_custev_created  ON customer_events(created_at);
+
+-- Lượt DẮT KHÁCH XEM CĂN: đã dắt căn nào, khi nào, khách phản hồi ra sao
+CREATE TABLE IF NOT EXISTS customer_showings (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id   TEXT NOT NULL,
+    room_id       TEXT NOT NULL DEFAULT '',      -- phòng đã dắt (bỏ trống nếu phòng đã xóa/bán)
+    room_label    TEXT NOT NULL DEFAULT '',      -- "P.101 · 6.5tr" (chụp lại lúc dắt)
+    shown_at      TEXT NOT NULL DEFAULT '',      -- ngày dắt (YYYY-MM-DD)
+    outcome       TEXT NOT NULL DEFAULT 'no_feedback',  -- xem SHOWING_OUTCOMES
+    note          TEXT NOT NULL DEFAULT '',
+    process_error TEXT NOT NULL DEFAULT '',      -- điểm sai xử lý phát sinh lúc dắt (nếu có)
+    created_at    TEXT NOT NULL DEFAULT '',
+    actor         TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_showing_customer ON customer_showings(customer_id);
+CREATE INDEX IF NOT EXISTS ix_showing_room     ON customer_showings(room_id);
+CREATE INDEX IF NOT EXISTS ix_showing_date     ON customer_showings(shown_at);
 """
 
 

@@ -533,6 +533,85 @@ def main():
 
     check("21. CRM khách hàng: pipeline + lý do mất + funnel + tỷ lệ chốt", t21_crm)
 
+    # ---------------------------------------------------------------- dắt căn + điểm sai xử lý
+    def t22_showings():
+        """Quản lý ĐÃ DẮT CĂN NÀO + ĐIỂM SAI trong tư vấn & xử lý."""
+        from customer_manager import CustomerManager
+        cm = CustomerManager(db, settings)
+
+        c = cm.add_customer({"name": "Đỗ Văn Tèo", "phone": "0909000111",
+                             "source": "Zalo"}, actor="t")
+
+        # 1) chưa dắt gì -> cột showings = 0
+        row = next(r for r in cm.customers() if r["id"] == c["id"])
+        assert_true(int(row.get("showings") or 0) == 0,
+                    f"Cột 'Đã dắt' phải 0 lúc đầu: {row.get('showings')}")
+        assert_true(cm.showings(c["id"]) == [], "Danh sách dắt phải rỗng")
+        assert_true(cm.mistake_count(c["id"]) == 0, "Điểm sai phải 0 lúc đầu")
+
+        # 2) ghi 2 lượt dắt (1 lượt kèm điểm sai ngay lúc dắt)
+        s1 = cm.log_showing(c["id"], room_id="r1", room_label="P.101 · 6.5tr",
+                            shown_at="2026-11-01", outcome="interested",
+                            note="khách thích tầng máy", actor="t")
+        s2 = cm.log_showing(c["id"], room_id="r2", room_label="P.102 · 7tr",
+                            shown_at="2026-11-02", outcome="rejected",
+                            process_error="care_before_show", actor="t")
+        assert_true(s1["id"] and s2["id"], "log_showing không trả id")
+        assert_true(len(cm.showings(c["id"])) == 2, "Phải có 2 lượt dắt")
+        row = next(r for r in cm.customers() if r["id"] == c["id"])
+        assert_true(int(row.get("showings") or 0) == 2,
+                    f"Cột 'Đã dắt' phải 2: {row.get('showings')}")
+
+        # 3) mỗi lượt dắt tự ghi event 'view'; điểm sai lúc dắt ghi event 'mistake'
+        evs = cm.events(c["id"])
+        assert_true(sum(1 for e in evs if e["event"] == "view") == 2,
+                    "Thiếu event 'view' cho lượt dắt")
+        assert_true(sum(1 for e in evs if e["event"] == "mistake") == 1,
+                    "Thiếu event 'mistake' từ lượt dắt có process_error")
+
+        # 4) ghi điểm sai riêng (khách chậm phản hồi)
+        cm.log_mistake(c["id"], "slow_reply", note="trả lời chậm 2 ngày", actor="t")
+        assert_true(cm.mistake_count(c["id"]) == 2, "mistake_count phải = 2")
+
+        # 5) stats: dắt căn + điểm sai
+        st = cm.stats()
+        assert_true(st["showings_total"] == 2 and st["showings_rooms"] == 2,
+                    f"showings sai: {st['showings_total']}/{st['showings_rooms']}")
+        assert_true(st["showings_customers"] == 1, "showings_customers sai")
+        assert_true(st["showings_by_outcome"] == {"interested": 1, "rejected": 1},
+                    f"outcome sai: {st['showings_by_outcome']}")
+        assert_true(dict(st["top_rooms"]).get("P.101 · 6.5tr") == 1,
+                    f"top_rooms sai: {st['top_rooms']}")
+        assert_true(st["mistakes_total"] == 2, f"mistakes_total sai: {st['mistakes_total']}")
+        assert_true(dict(st["top_mistakes"]).get("care_before_show") == 1
+                    and dict(st["top_mistakes"]).get("slow_reply") == 1,
+                    f"top_mistakes sai: {st['top_mistakes']}")
+
+        # 6) khách đã dắt mà chốt thuê -> showings_won = 1
+        cm.change_status(c["id"], "won", actor="t")
+        st = cm.stats()
+        assert_true(st["showings_won"] == 1 and st["showings_lost"] == 0,
+                    f"showings_won/lost sai: {st['showings_won']}/{st['showings_lost']}")
+
+        # 7) xóa 1 lượt dắt -> còn 1 + có ghi chú vào dòng thời gian
+        sid = cm.showings(c["id"])[0]["id"]
+        assert_true(cm.remove_showing(sid, actor="t") is True, "remove_showing lỗi")
+        assert_true(len(cm.showings(c["id"])) == 1, "Sau xóa phải còn 1 lượt dắt")
+        assert_true(cm.stats()["showings_total"] == 1, "stats chưa cập nhật sau xóa")
+        notes = [e for e in cm.events(c["id"]) if e["event"] == "note"
+                 and "Xóa lượt dắt" in str(e.get("detail") or "")]
+        assert_true(len(notes) == 1, "Xóa lượt dắt phải ghi vào dòng thời gian")
+
+        # 8) validate outcome lạ -> quy về no_feedback
+        s3 = cm.log_showing(c["id"], room_label="P.103", outcome="bala", actor="t")
+        assert_true(s3["outcome"] == "no_feedback", "Outcome lạ phải quy về no_feedback")
+
+        st = cm.stats()
+        print(f"    -> {st['showings_total']} lượt dắt / {st['showings_rooms']} căn · "
+              f"{st['mistakes_total']} điểm sai · top={st['top_mistakes']}")
+
+    check("22. CRM dắt căn + điểm sai tư vấn & xử lý", t22_showings)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)

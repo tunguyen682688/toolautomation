@@ -3,11 +3,14 @@
 
 Trả lời câu hỏi "mình SAI ĐIỂM NÀO khi sale khách hàng":
 - Bảng khách tiềm pipeline phân cụm theo trạng thái (Mới -> Liên hệ -> Tư vấn ->
-  Hẹn xem -> Cọc -> Chốt) với tìm kiếm không dấu + lọc theo trạng thái/nguồn.
+  Hẹn xem -> Cọc -> Chốt) với tìm kiếm không dấu + lọc theo trạng thái/nguồn,
+  cột "Đã dắt" = số lượt đã dắt khách xem căn.
 - Panel chi tiết: đổi trạng thái (MẤT KHÁCH bắt chọn lý do), gọi/Zalo, ghi tương
-  tác (call/zalo/view/note) + lịch sử đầy đủ.
-- Tab Phân tích: FUNNEL (khách rơi ở khâu nào), TOP LÝ DO MẤT KHÁCH
-  (= điểm mình sai khi sale), nguồn khách, tỷ lệ chốt, thời gian trung bình chốt.
+  tác (call/zalo/view/note), **ghi nhận ĐÃ DẮT CĂN NÀO** (ngày + phản hồi khách)
+  và **điểm sai trong tư vấn & xử lý** (VD: chăm khách rồi mới dắt khách) +
+  lịch sử đầy đủ.
+- Tab Phân tích: FUNNEL (khách rơi ở khâu nào), TOP LÝ DO MẤT KHÁCH,
+  ĐIỂM SAI TƯ VẤN & XỬ LÝ, CĂN ĐÃ DẮT (hiệu quả), nguồn, tỷ lệ chốt.
 
 Dữ liệu: SQLite cục bộ qua customer_manager.CustomerManager (offline-first).
 """
@@ -16,22 +19,25 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QModelIndex, QRectF, Qt, Signal
+from PySide6.QtCore import QDate, QModelIndex, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QFrame, QGridLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-    QListView, QPlainTextEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
-    QSpinBox, QSplitter, QStyledItemDelegate, QTableView, QTabWidget, QToolButton,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
+    QFormLayout, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QInputDialog,
+    QLabel, QLineEdit, QListView, QMenu, QPlainTextEdit, QMessageBox, QPushButton,
+    QScrollArea, QSizePolicy, QSpinBox, QSplitter, QStyledItemDelegate, QTableView,
+    QTabWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
+import text_utils as tu
 import theme
 from customer_manager import CustomerManager
 from dashboard import StatCard
 from google_drive import open_phone, open_zalo
 from grouped_table import GroupedTableModel, group_row_size_hint, paint_group_row
-from models import CUSTOMER_SOURCES, CustomerStatus, LOSE_REASONS, lose_reason_label
+from models import (CUSTOMER_SOURCES, CustomerStatus, LOSE_REASONS, PROCESS_ERRORS,
+                    SHOWING_OUTCOMES, lose_reason_label, process_error_label,
+                    showing_outcome_label)
 from theme import C_ACCENT, C_DANGER, C_OK, C_MUTED
 
 # icon pipeline cho tiêu đề nhóm trong bảng
@@ -39,7 +45,12 @@ _STAGE_ICON = {
     "new": "🆕", "contacting": "📞", "consulting": "💬", "viewing": "👁️",
     "deposit": "💵", "won": "✅", "paused": "⏸️", "lost": "❌",
 }
-_EVENT_ICON = {"call": "📞", "zalo": "💬", "view": "👁️", "note": "📝", "status": "🔄"}
+_EVENT_ICON = {"call": "📞", "zalo": "💬", "view": "👁️", "note": "📝",
+               "status": "🔄", "mistake": "⚠️"}
+
+# icon + màu cho kết quả sau khi dắt xem
+_OUTCOME_ICON = {"interested": "✅", "considering": "🤔", "rejected": "❌",
+                 "no_feedback": "❓"}
 
 
 # ------------------------------------------------------------------ helper hiển thị
@@ -116,7 +127,8 @@ class BarList(QWidget):
             # nhãn (cắt bớt nếu quá dài)
             p.setPen(QColor(theme.c("text2")))
             p.drawText(QRectF(0, y, label_w - 8, h),
-                       int(Qt.AlignRight | Qt.AlignVCenter), label[:34])
+                       int(Qt.AlignRight | Qt.AlignVCenter),
+                       label[:33] + "…" if len(label) > 34 else label)
             # nền thanh
             track = QRectF(label_w, y + h * 0.26, bar_max, h * 0.48)
             p.setPen(Qt.NoPen)
@@ -375,6 +387,142 @@ class LoseReasonDialog(QDialog):
         self.accept()
 
 
+# ------------------------------------------------------------------ dialog dắt căn
+class ShowingDialog(QDialog):
+    """Ghi 1 lượt DẮT khách xem căn: căn nào + ngày + phản hồi + điểm sai (nếu có)."""
+
+    def __init__(self, rooms: List[Dict[str, Any]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Ghi nhận dắt khách xem căn")
+        self.setMinimumWidth(580)
+        self._rooms = rooms or []
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 14)
+        lay.setSpacing(10)
+
+        hint = QLabel(
+            "Đã dắt khách xem căn nào? Chọn căn trong kho (hoặc gõ tay căn đã "
+            "bán/đã xóa) + ngày + phản hồi của khách:")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            f"font-size:13px; color:{theme.c('text2')}; background:transparent;")
+        lay.addWidget(hint)
+
+        def labeled(label: str, w: QWidget):
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            lb = QLabel(label)
+            lb.setFixedWidth(96)
+            lb.setStyleSheet(
+                f"font-size:12.5px; font-weight:700; color:{theme.c('text2')};"
+                " background:transparent;")
+            row.addWidget(lb)
+            row.addWidget(w, 1)
+            lay.addLayout(row)
+
+        # căn hộ: chọn từ kho hoặc gõ tự do
+        self.cmb_room = QComboBox()
+        self.cmb_room.setEditable(True)
+        self.cmb_room.setInsertPolicy(QComboBox.NoInsert)
+        self.cmb_room.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.cmb_room.setMinimumContentsLength(20)
+        for r in self._rooms:
+            self.cmb_room.addItem(str(r.get("label") or r.get("id") or ""),
+                                  str(r.get("id") or ""))
+        self.cmb_room.setPlaceholderText(
+            "Chọn căn trong kho..." if self._rooms else "Nhập mã/địa chỉ căn (kho trống)")
+        labeled("Căn hộ", self.cmb_room)
+
+        # ngày dắt + phản hồi
+        self.date = QDateEdit()
+        self.date.setCalendarPopup(True)
+        self.date.setDisplayFormat("yyyy-MM-dd")
+        self.date.setDate(QDate.currentDate())
+        self.cmb_outcome = QComboBox()
+        for k, lab in SHOWING_OUTCOMES:
+            self.cmb_outcome.addItem(lab, k)
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        lb = QLabel("Ngày + phản hồi")
+        lb.setFixedWidth(96)
+        lb.setStyleSheet(
+            f"font-size:12.5px; font-weight:700; color:{theme.c('text2')};"
+            " background:transparent;")
+        row.addWidget(lb)
+        row.addWidget(self.date, 1)
+        row.addWidget(self.cmb_outcome, 1)
+        lay.addLayout(row)
+
+        # điểm sai phát sinh ngay lúc dắt (không bắt buộc)
+        self.cmb_mistake = QComboBox()
+        self.cmb_mistake.addItem("Không có điểm sai", "")
+        for k, lab in PROCESS_ERRORS:
+            self.cmb_mistake.addItem(lab, k)
+        self.cmb_mistake.setToolTip(
+            "Nếu lúc dắt/tư vấn mình làm sai điểm gì -> chọn ngay để trang Phân tích đếm")
+        labeled("Điểm sai (nếu có)", self.cmb_mistake)
+
+        self.ed_note = QLineEdit()
+        self.ed_note.setPlaceholderText("Ghi chú: khách nói gì, thích gì, chê gì...")
+        labeled("Ghi chú", self.ed_note)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        lay.addWidget(btns)
+
+    def payload(self) -> Dict[str, Any]:
+        return {
+            "room_id": str(self.cmb_room.currentData() or ""),
+            "room_label": self.cmb_room.currentText().strip(),
+            "shown_at": self.date.date().toString("yyyy-MM-dd"),
+            "outcome": self.cmb_outcome.currentData() or "no_feedback",
+            "note": self.ed_note.text().strip(),
+            "process_error": self.cmb_mistake.currentData() or "",
+        }
+
+
+# ------------------------------------------------------------------ dialog điểm sai xử lý
+class MistakeDialog(QDialog):
+    """Ghi 1 điểm SAI trong quá trình tư vấn & xử lý khách."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Điểm sai trong tư vấn & xử lý")
+        self.setMinimumWidth(520)
+        self.key = "care_before_show"
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 14)
+        lay.setSpacing(10)
+
+        hint = QLabel(
+            "Mình đã làm sai gì khi chăm / tư vấn / dắt khách? "
+            "(VD: «Chăm khách rồi mới dắt khách», «Để khách chờ phản hồi lâu»...)")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            f"font-size:13px; color:{theme.c('text2')}; background:transparent;")
+        lay.addWidget(hint)
+
+        self.cmb = QComboBox()
+        for k, lab in PROCESS_ERRORS:
+            self.cmb.addItem(lab, k)
+        lay.addWidget(self.cmb)
+
+        self.ed_note = QLineEdit()
+        self.ed_note.setPlaceholderText("Ghi chú thêm: tình huống cụ thể (không bắt buộc)")
+        lay.addWidget(self.ed_note)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self._ok)
+        btns.rejected.connect(self.reject)
+        lay.addWidget(btns)
+
+    def _ok(self):
+        self.key = self.cmb.currentData() or "care_before_show"
+        self.accept()
+
+
 # ------------------------------------------------------------------ bảng khách
 class CustomerTableModel(GroupedTableModel):
     """Bảng khách hàng ảo hoá, phân cụm theo TRẠNG THÁI pipeline."""
@@ -383,6 +531,7 @@ class CustomerTableModel(GroupedTableModel):
         ("name",        "Tên khách",     170),   # cột co giãn
         ("phone",       "SĐT",           108),
         ("status",      "Trạng thái",    108),
+        ("showings",    "Đã dắt",        70),
         ("source",      "Nguồn",         88),
         ("rating",      "Tiềm năng",     74),
         ("area",        "Khu vực",       120),
@@ -398,7 +547,7 @@ class CustomerTableModel(GroupedTableModel):
         return {"budget"}
 
     def center_align_keys(self):
-        return {"status", "source", "rating", "follow_up"}
+        return {"status", "showings", "source", "rating", "follow_up"}
 
     def group_key_of(self, row):
         return row.get("status") or "new"
@@ -431,6 +580,9 @@ class CustomerTableModel(GroupedTableModel):
         if role == Qt.ForegroundRole:
             if key == "status":
                 return QColor(CustomerStatus.color(c.get("status") or "new"))
+            if key == "showings":
+                return (QColor(theme.c("accent")) if int(c.get("showings") or 0) > 0
+                        else QColor(theme.c("text3")))
             if key == "rating" and int(c.get("rating") or 0) > 0:
                 return QColor(theme.c("warn"))
             if key == "follow_up":
@@ -443,6 +595,7 @@ class CustomerTableModel(GroupedTableModel):
         if role == Qt.ToolTipRole:
             return (f"👤 {c.get('name') or '(chưa rõ tên)'} · 📞 {c.get('phone') or '—'}\n"
                     f"Nguồn: {c.get('source') or '—'} · Khu vực: {c.get('area') or '—'}\n"
+                    f"🏠 Đã dắt: {int(c.get('showings') or 0)} lượt xem căn\n"
                     f"Yêu cầu: {c.get('requirement') or '—'}\n"
                     f"Việc tiếp: {c.get('next_action') or '—'}\n"
                     "Double-click để sửa khách")
@@ -450,6 +603,8 @@ class CustomerTableModel(GroupedTableModel):
             return None
         if key == "status":
             return CustomerStatus.label(c.get("status") or "new")
+        if key == "showings":
+            return str(int(c.get("showings") or 0))
         if key == "budget":
             return budget_text(c)
         if key == "rating":
@@ -487,9 +642,10 @@ class CustomerDetailPanel(QFrame):
     changed = Signal()              # có thay đổi -> page refresh
     edit_requested = Signal(str)    # customer_id -> mở form sửa
 
-    def __init__(self, cm: CustomerManager, parent=None):
+    def __init__(self, cm: CustomerManager, rooms_provider=None, parent=None):
         super().__init__(parent)
         self.cm = cm
+        self._rooms_provider = rooms_provider   # -> [{id, label}] cho combo dắt căn
         self.customer: Optional[Dict[str, Any]] = None
         self.setObjectName("Card")
         self.setMinimumWidth(320)
@@ -506,13 +662,19 @@ class CustomerDetailPanel(QFrame):
             f"font-size:13px; color:{theme.c('text3')}; background:transparent;")
         lay.addWidget(self.empty, 1)
 
-        # ---------- nội dung ----------
+        # ---------- nội dung (cuộn được - nội dung dài: chi tiết + dắt căn + lịch sử) ----------
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setStyleSheet("background:transparent;")
         self.box = QWidget()
         self.box.setStyleSheet("background:transparent;")
         bl = QVBoxLayout(self.box)
         bl.setContentsMargins(0, 0, 0, 0)
         bl.setSpacing(10)
-        lay.addWidget(self.box, 1)
+        self.scroll.setWidget(self.box)
+        lay.addWidget(self.scroll, 1)
+        self.scroll.hide()
 
         # header: avatar + tên + SĐT + nút sửa/xóa
         head = QHBoxLayout()
@@ -600,6 +762,55 @@ class CustomerDetailPanel(QFrame):
         log_row.addStretch(1)
         bl.addLayout(log_row)
 
+        # ---- DẮT CĂN + ĐIỂM SAI XỬ LÝ ----
+        show_row = QHBoxLayout()
+        show_row.setSpacing(8)
+        self.btn_showing = QPushButton("🏠  Ghi dắt căn")
+        self.btn_showing.setObjectName("SmallPrimary")
+        self.btn_showing.setToolTip(
+            "Ghi nhận ĐÃ DẮT khách xem căn nào:\n"
+            "căn + ngày + phản hồi của khách (quan tâm / từ chối / chưa phản hồi)")
+        self.btn_showing.clicked.connect(self._add_showing)
+        show_row.addWidget(self.btn_showing)
+        self.btn_mistake = QPushButton("⚠️  Điểm sai xử lý")
+        self.btn_mistake.setToolTip(
+            "Ghi điểm SAI trong tư vấn & xử lý khách\n"
+            "(VD: chăm khách rồi mới dắt khách, để khách chờ phản hồi lâu...)")
+        self.btn_mistake.clicked.connect(self._add_mistake)
+        show_row.addWidget(self.btn_mistake)
+        self.lbl_mistakes = QLabel("")
+        self.lbl_mistakes.setStyleSheet(
+            f"font-size:11.5px; font-weight:700; color:{theme.c('orange')};"
+            " background:transparent;")
+        show_row.addWidget(self.lbl_mistakes, 1)
+        bl.addLayout(show_row)
+
+        # danh sách căn đã dắt
+        hd = QHBoxLayout()
+        hd.setSpacing(8)
+        h_show = QLabel("CĂN ĐÃ DẮT KHÁCH XEM")
+        h_show.setStyleSheet(
+            f"font-size:11px; font-weight:800; color:{theme.c('text3')};"
+            " background:transparent; letter-spacing:0.6px;")
+        hd.addWidget(h_show)
+        hd.addStretch(1)
+        self.lbl_showings = QLabel("chưa dắt")
+        self.lbl_showings.setStyleSheet(
+            f"font-size:11px; font-weight:700; color:{theme.c('text3')};"
+            " background:transparent;")
+        hd.addWidget(self.lbl_showings)
+        bl.addLayout(hd)
+        self.showings_model = QStandardItemModel()
+        self.showings_list = QListView()
+        self.showings_list.setObjectName("ShowingList")
+        self.showings_list.setModel(self.showings_model)
+        self.showings_list.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.showings_list.setFixedHeight(96)
+        self.showings_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.showings_list.customContextMenuRequested.connect(self._showing_ctx)
+        self.showings_list.setToolTip("Chuột phải để xóa 1 lượt dắt (có ghi lịch sử)")
+        bl.addWidget(self.showings_list)
+
         # thông tin đọc nhanh
         self.info = QFormLayout()
         self.info.setHorizontalSpacing(10)
@@ -637,17 +848,15 @@ class CustomerDetailPanel(QFrame):
         self.events_list.setFixedHeight(150)
         bl.addWidget(self.events_list)
 
-        self.box.hide()
-
     # ------------------------------------------------------------------
     def set_customer(self, c: Optional[Dict[str, Any]]):
         self.customer = c
         if not c:
-            self.box.hide()
+            self.scroll.hide()
             self.empty.show()
             return
         self.empty.hide()
-        self.box.show()
+        self.scroll.show()
 
         name = str(c.get("name") or "").strip() or "(chưa rõ tên)"
         self.lbl_title.setText(name)
@@ -684,6 +893,7 @@ class CustomerDetailPanel(QFrame):
         self._vals["notes"].setText(str(c.get("notes") or "—"))
 
         self._load_events()
+        self._load_showings()
 
     def _sync_status_combo(self):
         cur = (self.customer or {}).get("status", "new")
@@ -698,10 +908,93 @@ class CustomerDetailPanel(QFrame):
         for e in (self.cm.events(cid) if cid else []):
             icon = _EVENT_ICON.get(e.get("event"), "•")
             detail = str(e.get("detail") or "").strip() or e.get("event")
+            # điểm sai xử lý: "key|ghi chú" -> hiển thị nhãn dễ đọc
+            if e.get("event") == "mistake":
+                key, _, note = detail.partition("|")
+                detail = process_error_label(key.strip())
+                if note.strip():
+                    detail += f" — {note.strip()}"
             item = QStandardItem(f"{icon}  {detail}\n     {_fmt_ts(e.get('created_at'))}")
             item.setEditable(False)
             item.setForeground(QColor(theme.c("text2")))
             self.events_model.appendRow(item)
+
+    def _load_showings(self):
+        """Danh sách căn ĐÃ DẮT khách xem + số điểm sai xử lý đã ghi."""
+        self.showings_model.clear()
+        cid = (self.customer or {}).get("id", "")
+        items = self.cm.showings(cid) if cid else []
+        self.lbl_showings.setText(f"{len(items)} lượt" if items else "chưa dắt")
+        colors = {"interested": theme.c("ok"), "considering": theme.c("warn"),
+                  "rejected": theme.c("danger"), "no_feedback": theme.c("text3")}
+        for s in items:
+            d = str(s.get("shown_at") or "")
+            dd = f"{d[8:10]}/{d[5:7]}" if len(d) >= 10 else d
+            oc = s.get("outcome") or "no_feedback"
+            mark = "  ⚠️" if s.get("process_error") else ""
+            txt = (f"{_OUTCOME_ICON.get(oc, '❓')} "
+                   f"{s.get('room_label') or s.get('room_id') or '(chưa rõ căn)'}"
+                   f" · {dd}{mark}")
+            item = QStandardItem(txt)
+            item.setEditable(False)
+            item.setForeground(QColor(colors.get(oc, theme.c("text2"))))
+            item.setData(int(s.get("id") or 0), Qt.UserRole)
+            item.setToolTip(str(s.get("note") or "").strip()
+                            or "Chuột phải để xóa lượt dắt này")
+            self.showings_model.appendRow(item)
+        n_mis = self.cm.mistake_count(cid) if cid else 0
+        self.lbl_mistakes.setText(f"⚠️ {n_mis} điểm sai" if n_mis else "")
+
+    # ------------------------------------------------------------------ dắt căn / điểm sai
+    def _add_showing(self):
+        c = self.customer
+        if not c:
+            return
+        rooms = self._rooms_provider() if self._rooms_provider else []
+        dlg = ShowingDialog(rooms, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        p = dlg.payload()
+        if not (p["room_id"] or p["room_label"]):
+            QMessageBox.warning(self, "Thiếu căn",
+                                "Hãy chọn căn trong kho hoặc nhập mã/địa chỉ căn "
+                                "mình đã dắt khách xem.")
+            return
+        self.cm.log_showing(c["id"], **p)
+        self.changed.emit()
+        self.set_customer(self.cm.customer(c["id"]))
+
+    def _add_mistake(self):
+        c = self.customer
+        if not c:
+            return
+        dlg = MistakeDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self.cm.log_mistake(c["id"], dlg.key, note=dlg.ed_note.text())
+        self.changed.emit()
+        self.set_customer(self.cm.customer(c["id"]))
+
+    def _showing_ctx(self, pos):
+        it = self.showings_list.itemAt(pos)
+        if not it:
+            return
+        m = QMenu(self)
+        m.addAction("🗑  Xóa lượt dắt này",
+                    lambda: self._remove_showing(int(it.data(Qt.UserRole) or 0)))
+        m.exec(self.showings_list.mapToGlobal(pos))
+
+    def _remove_showing(self, sid: int):
+        if not sid or not self.customer:
+            return
+        if QMessageBox.question(
+                self, "Xóa lượt dắt",
+                "Xóa lượt dắt này khỏi lịch sử? (sẽ có ghi chú trong dòng thời gian)"
+        ) != QMessageBox.Yes:
+            return
+        self.cm.remove_showing(sid)
+        self.changed.emit()
+        self.set_customer(self.cm.customer(self.customer["id"]))
 
     # ------------------------------------------------------------------ trạng thái
     def apply_status(self, new_status: str, lose_reason: str = "",
@@ -814,6 +1107,8 @@ class AnalyticsPanel(QWidget):
             ("won", "Đã chốt thuê", "✅", C_OK),
             ("conv", "Tỷ lệ chốt", "🎯", C_OK),
             ("lost", "Mất khách", "❌", C_DANGER),
+            ("showings", "Lượt dắt khách", "🏠", C_ACCENT),
+            ("mistakes", "Điểm sai xử lý", "⚠️", C_DANGER),
         )):
             card = StatCard(title, 0, "", color, icon)
             self.kpi[key] = card
@@ -845,6 +1140,33 @@ class AnalyticsPanel(QWidget):
             f"font-size:12.5px; font-weight:700; color:{C_DANGER};"
             " background:transparent;")
         v.addWidget(self.lbl_reason_hint)
+
+        # ---- ĐIỂM SAI TƯ VẤN & XỬ LÝ ----
+        v.addWidget(self._card_head(
+            "⚠️  ĐIỂM SAI TRONG TƯ VẤN & XỬ LÝ",
+            "Lỗi của mình lúc chăm / tư vấn / dắt khách "
+            "(VD: «Chăm khách rồi mới dắt khách»)"))
+        self.mistake_bars = BarList()
+        v.addWidget(self._wrap(self.mistake_bars))
+        self.lbl_mistake_hint = QLabel("")
+        self.lbl_mistake_hint.setWordWrap(True)
+        self.lbl_mistake_hint.setStyleSheet(
+            f"font-size:12.5px; font-weight:700; color:{theme.c('orange')};"
+            " background:transparent;")
+        v.addWidget(self.lbl_mistake_hint)
+
+        # ---- CĂN ĐÃ DẮT KHÁCH XEM ----
+        v.addWidget(self._card_head(
+            "🏠  CĂN ĐÃ DẮT KHÁCH XEM",
+            "Lượt dắt theo từng căn + phản hồi của khách sau khi xem"))
+        self.room_bars = BarList()
+        v.addWidget(self._wrap(self.room_bars))
+        self.lbl_room_hint = QLabel("")
+        self.lbl_room_hint.setWordWrap(True)
+        self.lbl_room_hint.setStyleSheet(
+            f"font-size:12.5px; font-weight:700; color:{theme.c('text2')};"
+            " background:transparent;")
+        v.addWidget(self.lbl_room_hint)
 
         # ---- nguồn + hoạt động ----
         row = QHBoxLayout()
@@ -921,6 +1243,13 @@ class AnalyticsPanel(QWidget):
             f"trên {closed} khách đã kết thúc" if closed else "chưa có khách kết thúc")
         self.kpi["lost"].set_value(
             st.get("lost", 0), "xem lý do ở ngay bên dưới" if st.get("lost") else "chưa mất khách nào")
+        self.kpi["showings"].set_value(
+            st.get("showings_total", 0),
+            f"trên {st.get('showings_rooms', 0)} căn · {st.get('showings_customers', 0)} khách"
+            if st.get("showings_total") else "chưa ghi lượt dắt nào")
+        self.kpi["mistakes"].set_value(
+            st.get("mistakes_total", 0),
+            "xem phân tích bên dưới" if st.get("mistakes_total") else "chưa ghi điểm sai nào")
 
         # ---- funnel ----
         fr = st.get("funnel_reached") or []
@@ -952,6 +1281,40 @@ class AnalyticsPanel(QWidget):
             self.lbl_reason_hint.setText(
                 "Chưa có khách mất → chưa có dữ liệu điểm sai (hãy chọn lý do khi chuyển khách về Mất khách)")
 
+        # ---- điểm sai tư vấn & xử lý ----
+        mistakes = st.get("top_mistakes") or []
+        self.mistake_bars.set_data(
+            [(process_error_label(k), n, theme.c("orange")) for k, n in mistakes],
+            int(st.get("mistakes_total", 0)))
+        if mistakes:
+            k, n = mistakes[0]
+            self.lbl_mistake_hint.setText(
+                f"🟠 Điểm sai xử lý nhiều nhất: «{process_error_label(k)}» - {n} lần")
+        else:
+            self.lbl_mistake_hint.setText(
+                "Chưa ghi điểm sai nào → bấm ⚠️ Điểm sai xử lý ở panel chi tiết "
+                "mỗi khi mình làm sai (VD: chăm khách rồi mới dắt khách)")
+
+        # ---- căn đã dắt khách xem ----
+        rooms = st.get("top_rooms") or []
+        self.room_bars.set_data(
+            [(lab, n, C_ACCENT) for lab, n in rooms],
+            int(st.get("showings_total", 0)))
+        if st.get("showings_total"):
+            by_out = st.get("showings_by_outcome") or {}
+            split = " · ".join(
+                f"{showing_outcome_label(k)} {by_out.get(k, 0)}"
+                for k, _ in SHOWING_OUTCOMES if by_out.get(k))
+            self.lbl_room_hint.setText(
+                f"🏠 Đã dắt {st.get('showings_total', 0)} lượt / "
+                f"{st.get('showings_rooms', 0)} căn / {st.get('showings_customers', 0)} khách"
+                + (f" — {split}" if split else "")
+                + f" — khách đã dắt: {st.get('showings_won', 0)} chốt · "
+                  f"{st.get('showings_lost', 0)} mất")
+        else:
+            self.lbl_room_hint.setText(
+                "Chưa dắt khách xem căn nào → bấm 🏠 Ghi dắt căn ở panel chi tiết")
+
         # ---- nguồn ----
         self.source_bars.set_data(
             [(src, n, C_ACCENT) for src, n in (st.get("by_source") or {}).items()], total)
@@ -975,6 +1338,14 @@ class AnalyticsPanel(QWidget):
         if reasons:
             k, lab, n = reasons[0]
             parts.append(f"🔴 lý do mất nhiều nhất: <b>{lab}</b> ({n} khách)")
+        if mistakes:
+            k, n = mistakes[0]
+            parts.append(f"⚠️ điểm sai xử lý nhiều nhất: <b>{process_error_label(k)}</b> ({n} lần)")
+        if st.get("showings_total"):
+            parts.append(f"🏠 đã dắt <b>{st['showings_total']} lượt</b> xem "
+                         f"{st.get('showings_rooms', 0)} căn "
+                         f"({st.get('showings_won', 0)} chốt · "
+                         f"{st.get('showings_lost', 0)} mất)")
         if st.get("activity", {}).get("call", 0) or st.get("activity", {}).get("zalo", 0):
             calls = st["activity"].get("call", 0) + st["activity"].get("zalo", 0)
             parts.append(f"📞 {calls} lượt liên hệ đã ghi nhận")
@@ -1076,7 +1447,7 @@ class CustomerPage(QWidget):
         split.addWidget(self.table)
 
         self.tabs = QTabWidget()
-        self.panel = CustomerDetailPanel(self.cm)
+        self.panel = CustomerDetailPanel(self.cm, rooms_provider=self._room_options)
         self.panel.changed.connect(self.refresh)
         self.panel.edit_requested.connect(self._edit)
         self.tabs.addTab(self.panel, "🔎  Chi tiết")
@@ -1095,6 +1466,24 @@ class CustomerPage(QWidget):
         lay.addWidget(body, 1)
 
     # ------------------------------------------------------------------ dữ liệu
+    def _room_options(self) -> List[Dict[str, Any]]:
+        """Danh sách căn cho dialog dắt khách: [{id, label}] (mã · địa chỉ · giá).
+
+        Giới hạn 300 căn đầu (mới nhất) để combo chọn nhanh, không lag.
+        """
+        try:
+            rooms = self.mgr.rooms("")
+        except Exception:
+            rooms = []
+        opts: List[Dict[str, Any]] = []
+        for r in rooms[:300]:
+            code = str(r.get("room_code") or "").strip() or (str(r.get("id") or ""))[-6:]
+            addr = str(r.get("address") or "").strip()
+            price = tu.format_money(r.get("price")) if r.get("price") else ""
+            label = code + (f" · {addr}" if addr else "") + (f" · {price}" if price else "")
+            opts.append({"id": str(r.get("id") or ""), "label": label})
+        return opts
+
     def refresh(self, *_):
         text = self.ed_search.text()
         status = self.cmb_status.currentData()
@@ -1123,8 +1512,8 @@ class CustomerPage(QWidget):
             target = rows[0]
         if target:
             self._select_row(target["id"])
-            if (self.panel.customer or {}).get("id") != target["id"]:
-                self.panel.set_customer(target)
+            # luôn nạp lại: dữ liệu (trạng thái / lượt dắt / điểm sai) có thể vừa đổi
+            self.panel.set_customer(target)
         else:
             self.panel.set_customer(None)
 

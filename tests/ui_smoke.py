@@ -371,6 +371,87 @@ def main() -> int:
 
     check("Trang khách hàng: bảng pipeline + chi tiết + đổi trạng thái + phân tích", customers)
 
+    # ------------------------------------ dắt căn + điểm sai tư vấn & xử lý
+    def showings():
+        win.navigate("customers")
+        app.processEvents()
+        page = win.page_customers
+
+        # 1) thêm khách -> chọn dòng -> panel chi tiết
+        page.cm.add_customer({"name": "Trần Văn Dắt", "phone": "0909555666",
+                              "source": "Zalo"})
+        page.ed_search.clear()
+        page.refresh()
+        app.processEvents()
+        idx = None
+        for r in range(page._model.rowCount()):
+            rec = page._model.data_row_at(r)
+            if rec and rec.get("phone") == "0909555666":
+                idx = page._model.index(r, 0)
+                break
+        assert idx is not None, "Không thấy khách vừa thêm"
+        page._on_row_clicked(idx)
+        app.processEvents()
+        assert page.panel.customer and page.panel.btn_showing is not None, \
+            "Thiếu nút 'Ghi dắt căn'"
+        assert page.panel.btn_mistake is not None, "Thiếu nút 'Điểm sai xử lý'"
+
+        # 2) options căn cho dialog dắt (đã import Excel mẫu -> có phòng)
+        opts = page._room_options()
+        assert opts and "id" in opts[0] and "label" in opts[0], \
+            f"_room_options sai: {opts[:1]}"
+
+        # 3) dialog dắt căn: đọc payload KHÔNG mở modal
+        from customer_view import MistakeDialog, ShowingDialog
+        dlg = ShowingDialog(opts, page.panel)
+        dlg.cmb_room.setCurrentIndex(0)
+        dlg.cmb_outcome.setCurrentIndex(dlg.cmb_outcome.findData("rejected"))
+        dlg.cmb_mistake.setCurrentIndex(dlg.cmb_mistake.findData("care_before_show"))
+        dlg.ed_note.setText("chăm 3 ngày mới rủ đi xem")
+        p = dlg.payload()
+        assert p["room_id"] and p["outcome"] == "rejected" \
+            and p["process_error"] == "care_before_show", f"Payload dialog sai: {p}"
+        dlg.deleteLater()
+
+        # 4) ghi 1 lượt dắt (kèm điểm sai) -> cột 'Đã dắt' = 1 + panel liệt kê
+        cid = page.panel.customer["id"]
+        page.cm.log_showing(cid, room_id=p["room_id"], room_label=p["room_label"],
+                            shown_at="2026-11-02", outcome=p["outcome"],
+                            note=p["note"], process_error=p["process_error"])
+        page.refresh()
+        app.processEvents()
+        row = next(r for r in range(page._model.rowCount())
+                   if (page._model.data_row_at(r) or {}).get("id") == cid)
+        cell = page._model.data(page._model.index(row, 3), Qt.DisplayRole)
+        assert str(cell) == "1", f"Cột 'Đã dắt' phải là 1, nhận: {cell!r}"
+        assert page.panel.showings_model.rowCount() == 1, "Panel chưa liệt kê lượt dắt"
+        assert "1 lượt" in page.panel.lbl_showings.text(), "Nhãn số lượt dắt sai"
+        assert "1 điểm sai" in page.panel.lbl_mistakes.text(), "Nhãn điểm sai sai"
+
+        # 5) dialog điểm sai xử lý -> ghi riêng
+        dlg2 = MistakeDialog(page.panel)
+        assert dlg2.cmb.count() >= 10, "Danh mục điểm sai quá ít"
+        page.cm.log_mistake(cid, dlg2.cmb.currentData(), note="để khách chờ")
+        page.refresh()
+        app.processEvents()
+        assert page.panel.showings_model.rowCount() == 1, "Ghi điểm sai làm mất lượt dắt"
+        assert "2 điểm sai" in page.panel.lbl_mistakes.text(), "Chưa đếm đủ2 điểm sai"
+
+        # 6) tab Phân tích: 2 thanh mới + KPI mới
+        page.tabs.setCurrentIndex(1)
+        app.processEvents()
+        assert page.analytics.mistake_bars.row_count() >= 1, "Chưa có thanh điểm sai xử lý"
+        assert page.analytics.room_bars.row_count() >= 1, "Chưa có thanh căn đã dắt"
+        assert page.analytics.kpi["showings"].lbl_value.text() == "1", \
+            f"KPI lượt dắt sai: {page.analytics.kpi['showings'].lbl_value.text()}"
+        assert page.analytics.kpi["mistakes"].lbl_value.text() == "2", \
+            f"KPI điểm sai sai: {page.analytics.kpi['mistakes'].lbl_value.text()}"
+        assert "Chăm khách rồi mới dắt khách" in page.analytics.lbl_mistake_hint.text(), \
+            "Hint điểm sai không nêu được lỗi phổ biến nhất"
+        assert "Đã dắt 1 lượt" in page.analytics.lbl_room_hint.text(), "Hint căn đã dắt sai"
+
+    check("Trang khách hàng: dắt căn + điểm sai xử lý (panel + phân tích)", showings)
+
     win.close()
     app.processEvents()
 

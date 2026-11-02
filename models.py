@@ -195,6 +195,40 @@ def lose_reason_label(key: str) -> str:
     return LOSE_REASON_LABEL.get(key, key or "")
 
 
+# Kết quả SAU KHI dắt khách xem căn (phản hồi của khách)
+SHOWING_OUTCOMES = [
+    ("interested", "Khách quan tâm"),
+    ("considering", "Đang suy nghĩ"),
+    ("rejected", "Khách từ chối"),
+    ("no_feedback", "Chưa phản hồi"),
+]
+SHOWING_OUTCOME_LABEL = dict(SHOWING_OUTCOMES)
+
+# Điểm SAI trong quá trình TƯ VẤN & XỬ LÝ (khách thuê hay không là chuyện khác -
+# đây là lỗi của mình lúc chăm/tư vấn/dắt khách). Dữ liệu cho trang Phân tích.
+PROCESS_ERRORS = [
+    ("care_before_show", "Chăm khách rồi mới dắt khách (để khách nguội)"),
+    ("need_unknown", "Chưa nắm rõ nhu cầu đã vội dắt phòng"),
+    ("wrong_segment", "Dắt sai phân khúc / sai loại phòng"),
+    ("slow_reply", "Để khách chờ phản hồi quá lâu"),
+    ("no_feedback", "Không hỏi feedback sau khi dắt xem"),
+    ("no_followup", "Không giữ liên lạc sau dắt xem (khách nguội)"),
+    ("too_many_rooms", "Dắt quá nhiều phòng một lúc (khách choáng)"),
+    ("no_next_step", "Không chốt bước tiếp theo sau mỗi lần tư vấn"),
+    ("wrong_info", "Tư vấn sai thông tin (giá / tiện ích / chủ nhà)"),
+    ("missed_appointment", "Bỏ lỡ hoặc không xác nhận lịch hẹn"),
+]
+PROCESS_ERROR_LABEL = dict(PROCESS_ERRORS)
+
+
+def process_error_label(key: str) -> str:
+    return PROCESS_ERROR_LABEL.get(key, key or "")
+
+
+def showing_outcome_label(key: str) -> str:
+    return SHOWING_OUTCOME_LABEL.get(key, key or "")
+
+
 # ---------------------------------------------------------------- Filters
 @dataclass
 class RoomFilter:

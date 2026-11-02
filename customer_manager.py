@@ -156,21 +156,27 @@ class CustomerManager:
 
     def customers(self, text: str = "", status: Optional[str] = None,
                   source: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Danh sách khách (mới nhất trước) - lọc theo trạng thái/nguồn/tìm kiếm."""
-        sql = "SELECT * FROM customers WHERE deleted=0"
+        """Danh sách khách (mới nhất trước) - lọc theo trạng thái/nguồn/tìm kiếm.
+
+        Mỗi dòng có thêm `showings` = số lượt đã DẮT khách xem căn (bảng
+        customer_showings) để nhìn ngay khách nào đã được dắt xem.
+        """
+        sql = ("SELECT c.*, (SELECT COUNT(*) FROM customer_showings s"
+               " WHERE s.customer_id = c.id) AS showings"
+               " FROM customers c WHERE c.deleted=0")
         params: List[Any] = []
         if status:
-            sql += " AND status=?"
+            sql += " AND c.status=?"
             params.append(status)
         if source:
-            sql += " AND source=?"
+            sql += " AND c.source=?"
             params.append(source)
         q = tu.norm(text)
         if q:
             # tìm không dấu: so norm_key từng token trong search_norm
-            sql += " AND search_norm LIKE ?"
+            sql += " AND c.search_norm LIKE ?"
             params.append(f"%{q}%")
-        sql += " ORDER BY updated_at DESC"
+        sql += " ORDER BY c.updated_at DESC"
         with self.db._lock:
             rows = self.db.query(sql, params)
         out = [row_to_dict(r) for r in rows]
@@ -187,6 +193,87 @@ class CustomerManager:
                 "SELECT * FROM customer_events WHERE customer_id=?"
                 " ORDER BY id DESC LIMIT ?", (cid, limit))
         return [row_to_dict(r) for r in rows]
+
+    # ================================================================ dắt khách xem căn
+    def showings(self, cid: str) -> List[Dict[str, Any]]:
+        """Các lượt đã DẮT khách xem căn (mới nhất trước)."""
+        with self.db._lock:
+            rows = self.db.query(
+                "SELECT * FROM customer_showings WHERE customer_id=?"
+                " ORDER BY shown_at DESC, id DESC", (cid,))
+        return [row_to_dict(r) for r in rows]
+
+    def log_showing(self, cid: str, room_id: str = "", room_label: str = "",
+                    shown_at: str = "", outcome: str = "", note: str = "",
+                    process_error: str = "", actor: str = "") -> Dict[str, Any]:
+        """Ghi 1 lượt dắt khách xem căn.
+
+        - room_label được CHỤP LẠI lúc dắt (phòng bán/xóa sau đó vẫn còn lịch sử).
+        - Tự ghi 1 event 'view' vào dòng thời gian (panel Chi tiết + hoạt động selling).
+        - Kèm process_error (điểm sai xử lý) -> vừa lưu vào lượt dắt, vừa ghi event
+          'mistake' để trang Phân tích đếm được (nguồn thống kê duy nhất = events).
+        """
+        actor = actor or (self.settings.get("user_name") if self.settings else "") or "Admin"
+        outcome = outcome if outcome in ("interested", "considering",
+                                         "rejected", "no_feedback") else "no_feedback"
+        shown_at = str(shown_at or "")[:10] or now_iso()[:10]
+        sid = None
+        with self.db.write() as conn:
+            cur = conn.execute(
+                "INSERT INTO customer_showings"
+                " (customer_id, room_id, room_label, shown_at, outcome, note,"
+                "  process_error, created_at, actor) VALUES (?,?,?,?,?,?,?,?,?)",
+                (cid, str(room_id or ""), str(room_label or ""), shown_at,
+                 outcome, str(note or ""), str(process_error or ""),
+                 now_iso(), actor))
+            sid = cur.lastrowid
+            label = room_label or room_id or "căn không rõ"
+            self._log_event(conn, cid, "view", f"Đã dắt xem: {label}",
+                            room_id=str(room_id or ""), actor=actor)
+            if process_error:
+                self._log_event(conn, cid, "mistake", process_error, actor=actor)
+        return {"id": sid, "customer_id": cid, "room_id": room_id,
+                "room_label": room_label, "shown_at": shown_at,
+                "outcome": outcome, "note": note,
+                "process_error": process_error}
+
+    def remove_showing(self, sid, actor: str = "") -> bool:
+        """Xóa 1 lượt dắt (ghi nhận vào dòng thời gian, không xóa im lặng)."""
+        actor = actor or (self.settings.get("user_name") if self.settings else "") or "Admin"
+        with self.db.write() as conn:
+            row = conn.execute(
+                "SELECT * FROM customer_showings WHERE id=?", (sid,)).fetchone()
+            if not row:
+                return False
+            r = row_to_dict(row)
+            conn.execute("DELETE FROM customer_showings WHERE id=?", (sid,))
+            self._log_event(
+                conn, r["customer_id"], "note",
+                f"Xóa lượt dắt: {r.get('room_label') or r.get('room_id') or ''}"
+                f" ({r.get('shown_at') or ''})", actor=actor)
+            return True
+
+    def log_mistake(self, cid: str, key: str, note: str = "",
+                    actor: str = "") -> None:
+        """Ghi 1 điểm SAI trong tư vấn & xử lý khách (PROCESS_ERRORS).
+
+        detail = "key" hoặc "key|ghi chú" (phân tách bằng '|' khi thống kê).
+        """
+        actor = actor or (self.settings.get("user_name") if self.settings else "") or "Admin"
+        key = str(key or "").strip()
+        if not key:
+            return
+        detail = key + ("|" + str(note).strip() if str(note or "").strip() else "")
+        with self.db.write() as conn:
+            self._log_event(conn, cid, "mistake", detail, actor=actor)
+
+    def mistake_count(self, cid: str) -> int:
+        """Số điểm SAI tư vấn & xử lý đã ghi cho khách này."""
+        with self.db._lock:
+            row = self.db.query_one(
+                "SELECT COUNT(*) c FROM customer_events"
+                " WHERE customer_id=? AND event='mistake'", (cid,))
+        return int(row["c"]) if row else 0
 
     # ================================================================ pipeline
     def change_status(self, cid: str, new_status: str, actor: str = "",
@@ -269,6 +356,14 @@ class CustomerManager:
             stage_rows = self.db.query(
                 "SELECT customer_id, new_status FROM customer_events"
                 " WHERE new_status<>''")
+            showing_rows = self.db.query(
+                "SELECT s.customer_id, s.room_label, s.outcome"
+                " FROM customer_showings s"
+                " JOIN customers c ON c.id=s.customer_id AND c.deleted=0")
+            mistake_rows = self.db.query(
+                "SELECT e.detail FROM customer_events e"
+                " JOIN customers c ON c.id=e.customer_id AND c.deleted=0"
+                " WHERE e.event='mistake'")
             won_rows = self.db.query(
                 "SELECT c.created_at a, e.created_at b FROM customers c"
                 " JOIN customer_events e ON e.customer_id = c.id"
@@ -319,6 +414,34 @@ class CustomerManager:
              for k, n in by_reason.items() if n),
             key=lambda x: -x[2])
         activity = {r["event"]: r["c"] for r in ev_rows}
+
+        # ---- DẮT KHÁCH XEM CĂN: đã dắt căn nào + hiệu quả ----
+        showings_total = len(showing_rows)
+        by_outcome: Dict[str, int] = {}
+        room_counts: Dict[str, int] = {}
+        shown_customers: set = set()
+        for r in showing_rows:
+            shown_customers.add(r["customer_id"])
+            oc = r["outcome"] or "no_feedback"
+            by_outcome[oc] = by_outcome.get(oc, 0) + 1
+            lab = (r["room_label"] or "").strip() or "(chưa rõ căn)"
+            room_counts[lab] = room_counts.get(lab, 0) + 1
+        top_rooms = sorted(room_counts.items(), key=lambda x: (-x[1], x[0]))[:8]
+        # trong số khách ĐÃ từng dắt xem -> bao nhiêu chốt / bao nhiêu mất
+        status_by_id = {r["id"]: (r["status"] or "new") for r in rows}
+        showings_won = sum(1 for cid in shown_customers
+                           if status_by_id.get(cid) == "won")
+        showings_lost = sum(1 for cid in shown_customers
+                            if status_by_id.get(cid) == "lost")
+
+        # ---- ĐIỂM SAI TƯ VẤN & XỬ LÝ (event 'mistake': "key" hoặc "key|ghi chú") ----
+        mistakes: Dict[str, int] = {}
+        for r in mistake_rows:
+            key = (r["detail"] or "").split("|", 1)[0].strip()
+            if key:
+                mistakes[key] = mistakes.get(key, 0) + 1
+        mistakes_total = sum(mistakes.values())
+        top_mistakes = sorted(mistakes.items(), key=lambda x: (-x[1], x[0]))
         # số ngày trung bình từ lúc thêm khách -> chốt (chỉ khách đã chốt)
         days = []
         import datetime as _dt
@@ -342,6 +465,18 @@ class CustomerManager:
             "funnel": funnel,
             "funnel_reached": funnel_reached,   # (khâu, nhãn, số khách đã từng tới)
             "top_reasons": top_reasons,
+            # dắt khách xem căn
+            "showings_total": showings_total,
+            "showings_rooms": len(room_counts),
+            "showings_customers": len(shown_customers),
+            "showings_by_outcome": by_outcome,
+            "showings_won": showings_won,
+            "showings_lost": showings_lost,
+            "top_rooms": top_rooms,
+            # điểm sai tư vấn & xử lý
+            "mistakes": mistakes,
+            "mistakes_total": mistakes_total,
+            "top_mistakes": top_mistakes,
             "activity": activity,
             "won_avg_days": round(sum(days) / len(days), 1) if days else None,
         }

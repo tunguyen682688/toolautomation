@@ -116,8 +116,8 @@ toolautomation/
 ├── dashboard.py          ← Dashboard 9 chỉ số, biểu đồ, lịch sử thay đổi
 ├── building_view.py      ← lưới thẻ tòa nhà (FlowLayout) + form tòa
 ├── room_view.py          ← bảng phòng ảo hoá + bộ lọc + panel chi tiết + menu chuột phải
-├── customer_manager.py   ← CRM: khách tiềm pipeline + funnel + lý do mất khách (phân tích sale)
-├── customer_view.py      ← trang Khách hàng: bảng pipeline + chi tiết + tab Phân tích điểm sai
+├── customer_manager.py   ← CRM: khách tiềm pipeline + dắt căn + điểm sai tư vấn/xử lý (phân tích sale)
+├── customer_view.py      ← trang Khách hàng: bảng pipeline + chi tiết (dắt căn/điểm sai) + tab Phân tích
 ├── edit_form.py          ← form 8 nhóm + kiểm tra trùng debounce + Lưu / Lưu & thêm tiếp
 ├── import_dialog.py      ← nhập Excel: ánh xạ cột, xem trước 5 loại, không tự ghi đè
 ├── export_dialog.py      ← xuất Excel (giữ công thức) + file mẫu trống
@@ -219,12 +219,12 @@ Lần chạy đầu nếu DB trống, chương trình sẽ **đề nghị nhập
 
 ## 5. Bộ kiểm thử (chạy được ngay, không cần mạng)
 
-### 5.1. Kiểm thử backend — 21 tình huống
+### 5.1. Kiểm thử backend — 22 tình huống
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'     # console Windows cp1252 -> tránh lỗi hiển thị UTF-8
 python tests\run_checks.py
-# kỳ vọng: KẾT QUẢ: 21/21 PASS
+# kỳ vọng: KẾT QUẢ: 22/22 PASS
 ```
 
 ### 5.2. Kiểm thử phân biệt 3 trạng thái (Chưa biết / Có / Không) — 5 tình huống
@@ -240,13 +240,13 @@ Phủ: round-trip None qua DB (NULL thật), update Có↔Không↔Chưa biết,
 giữ nguyên 3 trạng thái, search_norm/fingerprint/hiển thị phân biệt rõ, migration DB cũ
 cột NOT NULL → build lại bảng (chuỗi rỗng & giá 0 cũ → NULL, dữ liệu 0/1 đã rõ giữ nguyên).
 
-### 5.3. Kiểm thử giao diện — 10 tình huống (chạy nền được)
+### 5.3. Kiểm thử giao diện — 11 tình huống (chạy nền được)
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'
 $env:QT_QPA_PLATFORM='offscreen'          # bỏ dòng này để thấy cửa sổ
 python tests\ui_smoke.py
-# kỳ vọng: UI: 10/10 PASS
+# kỳ vọng: UI: 11/11 PASS
 ```
 
 ### 5.4. Selftest — kiểm tra nhanh 12 đầu việc (có ở cả nguồn lẫn bản build)
@@ -394,6 +394,7 @@ chi tiết ghi vào `data\<env>\selftest_result.txt`.
 
 | Ngày | Thay đổi |
 |---|---|
+| 2026-11-02 | **QUẢN LÝ "ĐÃ DẮT CĂN NÀO" + "ĐIỂM SAI TRONG TƯ VẤN & XỬ LÝ" (VD: chăm khách rồi mới dắt khách).** Bảng SQLite mới `customer_showings` (căn + `room_label` CHỤP LẠI lúc dắt + ngày + phản hồi khách4 mức + ghi chú + điểm sai kèm lúc dắt), 3 index theo khách/căn/ngày. **Panel chi tiết khách** (bọc `QScrollArea` vì nội dung dài): nút **🏠 Ghi dắt căn** (dialog chọn căn từ kho — có combo editable để gõ căn đã bán/đã xóa — + ngày + phản hồi + điểm sai kèm + ghi chú), nút **⚠️ Điểm sai xử lý** (danh mục 10 lỗi PROCESS_ERRORS, đầu danh mục là «Chăm khách rồi mới dắt khách (để khách nguội)»), nhãn đếm điểm sai, khối **CĂN ĐÃ DẮT KHÁCH XEM** (chuột phải → xóa lượt dắt, có ghi vào dòng thời gian). `CustomerManager` mới: `showings()/log_showing()/remove_showing()/log_mistake()/mistake_count()` — mỗi lượt dắt **tự ghi event `view`**, kèm điểm sai thì ghi thêm event `mistake`; cột **"Đã dắt"** trong bảng pipeline (subquery đếm); `stats()` trả thêm `showings_*` + `mistakes_*` + `top_rooms` + `top_mistakes`. **Tab Phân tích** tách 3 khối riêng: ❌ ĐIỂM SAI KHI SALE (bar đỏ) · ⚠️ ĐIỂM SAI TRONG TƯ VẤN & XỬ LÝ (bar cam) · 🏠 CĂN ĐÃ DẮT KHÁCH XEM (bar xanh); KPI tăng 5→**7** (thêm *Lượt dắt khách*, *Điểm sai xử lý*), 2 hint riêng + 2 insight mới; nhãn thanh dài quá 34 ký tự tự cắt + "…". Bug sửa kèm: `CustomerPage.refresh()` trước chỉ gọi `set_customer` khi đổi khách → panel không nạp lại lượt dắt/điểm sau khi ghi (giờ luôn nạp lại). Test: backend **22/22** (check 22 mới) + UI **11/11** (check "dắt căn + điểm sai" mới) + tri-state 5/5. |
 | 2026-11-02 | **TRANG KHÁCH HÀNG (CRM) + phân tích "mình sai điểm nào khi sale".** Module mới `customer_manager.py` (bảng `customers` + `customer_events` trong SQLite) và `customer_view.py` (nav 👥 Khách hàng, Ctrl+4). **Bảng pipeline** phân cụm theo 8 trạng thái (Mới → Liên hệ → Tư vấn → Hẹn xem → Cọc → Chốt / Tạm hoãn / Mất khách) + tìm không dấu (tên/SĐT/Zalo/yêu cầu, token AND) + lọc trạng thái/nguồn + KPI. **Panel chi tiết**: đổi trạng thái trực tiếp (về **Mất khách bắt buộc chọn lý do** = "điểm sai khi sale", hồi sinh tự xóa lý do), nút Gọi/Zalo (tel: & zalo.me), ghi tương tác nhanh (📞đã gọi / 💬đã nhắn / 👁đã xem / 📝ghi chú) + lịch sử đầy đủ. **Tab "Phân tích điểm sai khi sale"**: FUNNEL thật (số khách đã TỪNG tới từng khâu, tính từ lịch sử trạng thái — chỉ ra "rơi nhiều nhất sau khâu X: N khách"), **TOP LÝ DO MẤT KHÁCH** (bar đỏ + "Điểm sai #1: «Giá cao» — x/N khách mất"), nguồn khách, hoạt động selling, tỷ lệ chốt % + số ngày trung bình chốt + nhận định tự động. Nút **"➕ Lưu thành khách hàng"** trong hộp thoại Tìm theo yêu cầu khách (prefill yêu cầu/ngân sách/đã parse). Test: backend **21/21** (check 21: pipeline + lý do + funnel + conversion 50% + tìm không dấu) + UI **10/10** (trang khách: form → bảng → panel → đổi trạng thái → phân tích render → lọc). Dashboard 9 thẻ không đổi. |
 | 2026-11-02 | **Copy ảnh dán vào Zalo: NHIỀU ảnh trong 1 tin nhắn + lưu ảnh bền vào thư mục quy ước.** Helper mới `media_manager.copy_files_to_clipboard()` — đưa file vào clipboard dạng CF_HDROP (đường dẫn tuyệt đối), **không đặt bitmap khi >1 ảnh** (clipboard có ảnh bitmap thì Zalo bóp thành 1 ảnh dán) → dán Ctrl+V 1 lần = N file trong MỘT tin nhắn; đúng 1 ảnh thì kèm bitmap cho mượt. Sửa lỗ hổng lớn: `QListWidget` mặc định `SingleSelection` → **không chọn được nhiều file** để copy — cả panel Ảnh/Video và ô ảnh trong form đều chuyển sang `ExtendedSelection` (Ctrl/Shift/Ctrl+A). Panel: nút 📋 copy selection hoặc **tất cả** khi chưa chọn gì, phản hồi "✅ Đã copy N file" tự hoàn nguyên, menu chuột phải thêm "Copy TẤT CẢ". Form: nút 📋 copy ảnh đang chọn/tất cả (đổi nhãn "Đã copy N ảnh ✓"3s), menu chuột phải copy; **mở form sửa tự nạp ảnh từ thư mục quy ước** (trước là `pass`), và **bấm Lưu tự copy ảnh vào thư mục quy ước** (ảnh dán từ Zalo nằm trong TEMP sẽ mất khi dọn tạm; trùng trùng dung lượng tự bỏ qua; banner báo "N ảnh đã vào thư mục"). Sửa bug tiềm ẩn: `ImageUpload._refresh` dùng `QIcon` mà không import (thêm ảnh vào form là lỗi NameError). Test mới trong `ui_smoke` (9/9): chọn nhiều + copy2 ảnh = file-only + copy1 ảnh = file+bitmap + lưu vào thư mục quy ước; ghi chú Qt offscreen PySide6 6.12 crash 0xC0000005 nếu thoát khi clipboard còn dữ liệu (platform windows thật không bị → test clear clipboard trước khi thoát). |
 | 2026-11-02 | **Phân biệt 3 trạng thái Chưa biết/Có/Không thật sự trong dữ liệu (NULL, không ép về 0).** Nguyên tắc: `1` = Có, `0` = Không, `NULL` = **Chưa biết** (đang hỏi chủ nhà). **Database**: schema `rooms` bỏ `NOT NULL` ở 10 cột (`floor/area/capacity/rating/pet_policy/price/deposit/surveyed/ev_support/foreign_guest`) + `_migrate_nullable_rooms()` tự build lại bảng cho DB cũ (copy → rename trong 1 transaction, có phục hồi `rooms_old_mig`; chuỗi rỗng & price/deposit=0 cũ → NULL, 0/1 đã rõ giữ nguyên; sửa bug `"rooms" not in info` — `info` là cột PRAGMA nên migration luôn bị bỏ qua). **Import** (`tri_parse_survey`/`tri_parse_yes_no`): ô trống → None, fill-only (payload None không ghi đè dữ liệu cũ). **Export**: tri-state → "Chưa biết", price/deposit NULL → ô trống (không ghi 0 giả). **Chống trùng**: fingerprint dùng `?` phân biệt None vs 0; `_same_significant`/`_diff_fields` so tri-state (bỏ 2 dòng so tay bool gây nhãn trùng). **Form**: checkbox "Chưa biết" cho số (tầng/diện tích/giá/cọc/sức chứa — seed giá/cọc 0 cũ → tick), `surveyed` chuyển sang combo 3 trạng thái; sửa **bug GC** `_line_with_unknown` (QWidget container không parent bị GC → "Internal C++ object already deleted", gây 3 FAIL UI). **Bảng/panel**: "Chưa biết"/"✕ Không"/"❔ Chưa biết", sửa ô trống → None. Hiển thị giá ở bảng/popup/tòa/chi tiết đều nói rõ "Chưa biết" thay vì "0 ₫". Test mới `tests/tri_state_check.py` (5/5). Kết quả: **backend 20/20 + tri-state 5/5 + UI 8/8 PASS**. |

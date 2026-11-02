@@ -1070,12 +1070,10 @@ class RoomPage(QWidget):
                 idx = val + 1 if 1 <= val <= 5 else 0
             else:
                 v = r.get(field)
-                if v is None:
-                    idx = 0  # Chưa biết
+                if v is None or v == 0 or v is False:
+                    idx = 0  # Chưa biết (bao gồm cả 0/không)
                 elif v == 1 or v is True:
                     idx = 1  # Có
-                elif v == 0 or v is False:
-                    idx = 2  # Không
                 else:
                     idx = 0
             cmb.setCurrentIndex(idx)

@@ -82,6 +82,21 @@ def _finish_selftest(app, win, mgr, db, log) -> None:
         n2 = len(mgr.rooms("P-86"))
         check("Tìm theo mã phòng", n2 >= 1, str(n2))
 
+        # 4b) tạo nhanh từ Zalo (module quick_add PHẢI có trong bản build)
+        from quick_add import autofill_from_text, norm_price, type_in_building
+        check("Có nút ⚡ Tạo nhanh từ Zalo trên trang Phòng",
+              hasattr(win.page_rooms, "btn_quick"))
+        fa = autofill_from_text("Cho thuê 321 Kiểm Thử P.99 giá 7.5tr studio")
+        check("Tạo nhanh: tách được địa chỉ/giá/loại từ tin nhắn",
+              fa.get("house_number") == "321" and fa.get("price") == 7500000
+              and fa.get("room_type") == "Studio" and norm_price("") is None, str(fa))
+        r0 = next((r for r in mgr.rooms("") if str(r.get("room_type") or "").strip()), None)
+        th = type_in_building(db, (r0 or {}).get("building_id") or "",
+                              (r0 or {}).get("room_type") or "")
+        check("Tạo nhanh: check LOẠI PHÒNG đã có trong tòa",
+              bool(r0) and th.get("count", 0) >= 1 and bool(th.get("codes")),
+              str(th))
+
         # 5) xuất Excel
         import tempfile
         out = Path(tempfile.mkdtemp(prefix="kho_xuat_")) / "selftest.xlsx"

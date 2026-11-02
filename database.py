@@ -181,6 +181,54 @@ CREATE TABLE IF NOT EXISTS undo_log (          -- lịch sử hoàn tác (mỗi 
 );
 CREATE INDEX IF NOT EXISTS ix_undo_room ON undo_log(room_id);
 CREATE INDEX IF NOT EXISTS ix_undo_undone ON undo_log(undone, id);
+
+-- ==================== CRM: KHÁCH HÀNG TIỀM NĂNG ====================
+-- Pipeline sale: mới liên hệ -> liên hệ -> tư vấn -> hẹn xem -> đặt cọc -> chốt
+-- lose_reason = "điểm mình sai khi sale" (dữ liệu cho trang phân tích)
+CREATE TABLE IF NOT EXISTS customers (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL DEFAULT '',
+    phone         TEXT NOT NULL DEFAULT '',
+    zalo          TEXT NOT NULL DEFAULT '',
+    source        TEXT NOT NULL DEFAULT '',      -- Zalo | Facebook | Điện thoại | Giới thiệu...
+    status        TEXT NOT NULL DEFAULT 'new',   -- xem CustomerStatus
+    lose_reason   TEXT NOT NULL DEFAULT '',      -- chỉ có khi status='lost'
+    requirement   TEXT NOT NULL DEFAULT '',      -- yêu cầu gốc (dán từ tin khách)
+    area          TEXT NOT NULL DEFAULT '',      -- khu vực quan tâm
+    room_type     TEXT NOT NULL DEFAULT '',
+    budget_min    INTEGER,                       -- NULL = chưa rõ (3 trạng thái)
+    budget_max    INTEGER,
+    room_id       TEXT NOT NULL DEFAULT '',      -- phòng đã giới thiệu / chốt
+    rating        INTEGER NOT NULL DEFAULT 0,    -- mức tiềm năng1-5 sao
+    next_action   TEXT NOT NULL DEFAULT '',      -- việc cần làm tiếp (hẹn xem phòng...)
+    follow_up     TEXT,                          -- ngày cần nhắc (YYYY-MM-DD, NULL = chưa hẹn)
+    notes         TEXT NOT NULL DEFAULT '',
+    search_norm   TEXT NOT NULL DEFAULT '',
+    version       INTEGER NOT NULL DEFAULT 0,
+    deleted       INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL DEFAULT '',
+    updated_at    TEXT NOT NULL DEFAULT '',
+    updated_by    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_customers_status ON customers(status);
+CREATE INDEX IF NOT EXISTS ix_customers_phone  ON customers(phone);
+CREATE INDEX IF NOT EXISTS ix_customers_follow ON customers(follow_up);
+CREATE INDEX IF NOT EXISTS ix_customers_update ON customers(updated_at);
+
+-- Lịch sử tương tác với khách -> nguồn dữ liệu cho phân tích hành vi sale
+CREATE TABLE IF NOT EXISTS customer_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id   TEXT NOT NULL,
+    event         TEXT NOT NULL DEFAULT 'note',  -- call | zalo | view | note | status
+    detail        TEXT NOT NULL DEFAULT '',
+    old_status    TEXT NOT NULL DEFAULT '',
+    new_status    TEXT NOT NULL DEFAULT '',
+    room_id       TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL DEFAULT '',
+    actor         TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_custev_customer ON customer_events(customer_id);
+CREATE INDEX IF NOT EXISTS ix_custev_created  ON customer_events(created_at);
 """
 
 

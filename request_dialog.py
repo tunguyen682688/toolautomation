@@ -79,6 +79,14 @@ class RequestDialog(QDialog):
         self.btn_find.setObjectName("Primary")
         self.btn_find.clicked.connect(self.run_search)
         row.addWidget(self.btn_find)
+        # lưu yêu cầu này thành khách hàng tiềm năng (CRM - trang Khách hàng)
+        self.btn_save_cust = QPushButton("➕  Lưu thành khách hàng")
+        self.btn_save_cust.setToolTip(
+            "Thêm khách này vào CRM (trang Khách hàng):\n"
+            "giữ nguyên yêu cầu/ngân sách đã parse -> theo dõi pipeline sale "
+            "và phân tích tỷ lệ chốt / lý do mất khách")
+        self.btn_save_cust.clicked.connect(self._save_customer)
+        row.addWidget(self.btn_save_cust)
         self.lbl_status = QLabel("")
         self.lbl_status.setObjectName("Muted")
         row.addWidget(self.lbl_status, 1)
@@ -152,6 +160,42 @@ class RequestDialog(QDialog):
         self.body_lay.addWidget(hint)
 
     # ------------------------------------------------------------------
+    def _save_customer(self):
+        """Lưu yêu cầu khách hiện tại thành khách hàng tiềm năng trong CRM."""
+        from PySide6.QtWidgets import QDialog as _QDlg, QMessageBox as _QMB
+
+        from customer_manager import CustomerManager
+        from customer_view import CustomerForm
+
+        req = self.req or parse_request(self.ed.text())
+        prefill: Dict[str, Any] = {"requirement": self.ed.text().strip()}
+        if req is not None:
+            if req.price_min or req.price_max:
+                prefill["budget_min"] = req.price_min
+                prefill["budget_max"] = req.price_max
+            if req.area_label:
+                prefill["area"] = req.area_label
+            if req.room_types:
+                prefill["room_type"] = ", ".join(req.room_types)
+        cm = CustomerManager(self.mgr.db, getattr(self.mgr, "settings", None))
+        dlg = CustomerForm(None, prefill, self)
+        if dlg.exec() != _QDlg.Accepted:
+            return
+        payload = dlg.payload()
+        if not (payload.get("name") or payload.get("phone")):
+            _QMB.warning(self, "Thiếu dữ liệu",
+                         "Cần ít nhất TÊN hoặc SỐ ĐIỆN THOẠI của khách hàng.")
+            return
+        try:
+            c = cm.add_customer(payload)
+        except Exception as e:  # noqa: BLE001
+            _QMB.critical(self, "Không lưu được", str(e))
+            return
+        _QMB.information(
+            self, "Đã lưu khách hàng",
+            f"Đã thêm «{c.get('name') or c.get('phone')}» vào trang Khách hàng "
+            f"(Ctrl+4) - theo dõi pipeline và phân tích lý do mất khách ở đó.")
+
     def run_search(self):
         self.req = parse_request(self.ed.text())
         self._render_chips()

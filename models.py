@@ -100,6 +100,101 @@ class RoomStatus:
         return "new"
 
 
+# ---------------------------------------------------------------- Customers (CRM)
+class CustomerStatus:
+    """Pipeline bán hàng của khách hàng tiềm năng (theo dõi tới khi chốt/mất)."""
+    ORDER = ("new", "contacting", "consulting", "viewing", "deposit",
+             "won", "paused", "lost")
+    LABEL = {
+        "new": "Mới liên hệ",
+        "contacting": "Đang liên hệ",
+        "consulting": "Đang tư vấn",
+        "viewing": "Hẹn xem phòng",
+        "deposit": "Đặt cọc",
+        "won": "Đã chốt thuê",
+        "paused": "Tạm hoãn",
+        "lost": "Mất khách",
+    }
+    COLOR = {
+        "new": "#64748B",
+        "contacting": "#2563EB",
+        "consulting": "#7C3AED",
+        "viewing": "#D97706",
+        "deposit": "#0891B2",
+        "won": "#16A34A",
+        "paused": "#A16207",
+        "lost": "#DC2626",
+    }
+    BG = {
+        "new": "#F1F5F9",
+        "contacting": "#DBEAFE",
+        "consulting": "#EDE9FE",
+        "viewing": "#FEF3C7",
+        "deposit": "#CFFAFE",
+        "won": "#DCFCE7",
+        "paused": "#FEF9C3",
+        "lost": "#FEE2E2",
+    }
+    # Pipeline đang chạy (chưa kết thúc) -> dùng cho KPI "đang xử lý"
+    ACTIVE = ("new", "contacting", "consulting", "viewing", "deposit")
+    # Đã kết thúc -> dùng cho tỷ lệ chốt
+    CLOSED = ("won", "lost")
+
+    @classmethod
+    def label(cls, key: str) -> str:
+        return cls.LABEL.get(key, key or "-")
+
+    @classmethod
+    def color(cls, key: str) -> str:
+        return cls.COLOR.get(key, "#6b7280")
+
+    @classmethod
+    def bg(cls, key: str) -> str:
+        return cls.BG.get(key, "#e5e7eb")
+
+    @classmethod
+    def from_text(cls, text) -> str:
+        s = tu.norm(text)
+        if not s:
+            return "new"
+        if s in cls.LABEL:
+            return s
+        for alias, key in (
+            ("moi lien he", "new"), ("moi", "new"), ("new", "new"),
+            ("dang lien he", "contacting"), ("da lien he", "contacting"),
+            ("dang tu van", "consulting"), ("tu van", "consulting"),
+            ("hen xem", "viewing"), ("xem phong", "viewing"),
+            ("dat coc", "deposit"), ("nhan coc", "deposit"), ("coc", "deposit"),
+            ("da chot", "won"), ("thue", "won"), ("chot", "won"),
+            ("tam hoan", "paused"), ("hoan", "paused"),
+            ("mat khach", "lost"), ("that bai", "lost"), ("khong chot", "lost"),
+        ):
+            if alias in s:
+                return key
+        return "new"
+
+
+# Lý do MẤT khách = "điểm mình sai khi sale" - dữ liệu cho trang phân tích
+LOSE_REASONS = [
+    ("price", "Giá cao hơn ngân sách khách"),
+    ("location", "Vị trí / khu vực không phù hợp"),
+    ("condition", "Phòng không đạt (cũ, chật, thiếu tiện ích)"),
+    ("unresponsive", "Khách ngừng trả lời (bỏ ngỏ)"),
+    ("slow", "Phản hồi chậm - để khách chờ"),
+    ("competitor", "Khách đã thuê chỗ khác (mất vào đối thủ)"),
+    ("trust", "Thông tin lệch - khách thấy không tin"),
+    ("no_need", "Khách hết nhu cầu / đổi ý"),
+    ("other", "Lý do khác"),
+]
+LOSE_REASON_LABEL = dict(LOSE_REASONS)
+
+CUSTOMER_SOURCES = ("Zalo", "Facebook", "Điện thoại", "Giới thiệu", "Website", "Khác")
+
+
+def lose_reason_label(key: str) -> str:
+    return LOSE_REASON_LABEL.get(key, key or "")
+
+
 # ---------------------------------------------------------------- Filters
 @dataclass
 class RoomFilter:

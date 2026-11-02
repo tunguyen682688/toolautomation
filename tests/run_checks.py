@@ -459,6 +459,80 @@ def main():
 
     check("Ảnh/video phòng: thư mục quy ước + import + chống trùng + thùng rác", t20_media)
 
+    # ---------------------------------------------------------------- CRM khách hàng
+    def t21_crm():
+        """CRM: pipeline bán hàng + lý do mất khách + funnel + tỷ lệ chốt."""
+        from customer_manager import CustomerManager
+        cm = CustomerManager(db, settings)
+
+        # 1) validate: cần ít nhất tên hoặc SĐT
+        try:
+            cm.add_customer({"name": "", "phone": ""})
+            assert_true(False, "Vẫn cho thêm khách không tên + không SĐT")
+        except ValueError:
+            pass
+
+        c1 = cm.add_customer({
+            "name": "Trần Thị Mai", "phone": "0987654321", "source": "Facebook",
+            "area": "P.13", "budget_min": 5000000, "budget_max": 7000000,
+            "requirement": "phòng 2 người gần đường Bình Lợi"}, actor="t")
+        c2 = cm.add_customer({"name": "Lê Văn Hùng", "phone": "0912345678"}, actor="t")
+
+        # 2) tìm không dấu (token AND) + theo SĐT
+        assert_true(len(cm.customers("tran thi mai")) == 1, "Tìm không dấu tên khách lỗi")
+        assert_true(len(cm.customers("0987")) == 1, "Tìm theo SĐT lỗi")
+        assert_true(len(cm.customers("khong ton tai")) == 0, "Tìm bịa ra kết quả")
+
+        # 3) pipeline tới khi MẤT - bắt buộc giữ lý do
+        for stt in ("contacting", "consulting", "viewing"):
+            cm.change_status(c1["id"], stt, actor="t")
+        cm.change_status(c1["id"], "lost", lose_reason="price", actor="t")
+        got = cm.customer(c1["id"])
+        assert_true(got["status"] == "lost" and got["lose_reason"] == "price",
+                    f"Sai trạng thái/lý do mất: {got['status']}/{got['lose_reason']}")
+
+        # 4) lịch sử trạng thái được ghi (nguồn dữ liệu của funnel)
+        evs = [e for e in cm.events(c1["id"]) if e["event"] == "status"]
+        assert_true(len(evs) >= 4, f"Thiếu lịch sử trạng thái: {len(evs)}")
+
+        # 5) hồi sinh khỏi 'Mất khách' -> tự xóa lý do cũ
+        cm.change_status(c1["id"], "viewing", actor="t")
+        assert_true(cm.customer(c1["id"])["lose_reason"] == "",
+                    "Hồi sinh phải xóa lý do mất cũ")
+        cm.change_status(c1["id"], "lost", lose_reason="slow", actor="t")
+
+        # 6) chốt 1 khách -> tỷ lệ chốt = 50%
+        cm.change_status(c2["id"], "won", actor="t")
+        st = cm.stats()
+        assert_true(st["total"] == 2, f"Tổng khách sai: {st['total']}")
+        assert_true(st["won"] == 1 and st["lost"] == 1,
+                    f"won/lost sai: {st['won']}/{st['lost']}")
+        assert_true(st["conversion"] == 50.0, f"Tỷ lệ chốt sai: {st['conversion']}")
+        assert_true(st["by_reason"].get("slow") == 1,
+                    f"Lý do mất không đúng: {st['by_reason']}")
+        assert_true(st["by_source"].get("Facebook") == 1, "Không đếm được nguồn khách")
+
+        # 7) funnel thật: khách đã TỪNG tới từng khâu
+        fr = dict((k, n) for k, _, n in st["funnel_reached"])
+        assert_true(fr.get("new") == 2, f"Khâu đầu funnel phải = 2: {fr}")
+        assert_true(fr.get("viewing", 0) >= 1 and fr.get("won") == 1,
+                    f"Funnel sai (c1 đã tới hẹn xem, c2 đã chốt): {fr}")
+
+        # 8) ghi tương tác -> hoạt động selling
+        cm.log_event(c2["id"], "call", "Đã gọi", actor="t")
+        assert_true(cm.stats()["activity"].get("call") == 1,
+                    "Không đếm được tương tác gọi")
+
+        # 9) sửa + xóa mềm
+        cm.update_customer(c2["id"], {"next_action": "Ký hợp đồng"}, actor="t")
+        assert_true(cm.customer(c2["id"])["next_action"] == "Ký hợp đồng",
+                    "update_customer lỗi")
+        cm.delete_customer(c2["id"], actor="t")
+        assert_true(len(cm.customers()) == 1, "Xóa mềm khách lỗi")
+        print(f"    -> conversion={st['conversion']}% · funnel={fr} · lý do mất={st['by_reason']}")
+
+    check("21. CRM khách hàng: pipeline + lý do mất + funnel + tỷ lệ chốt", t21_crm)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)

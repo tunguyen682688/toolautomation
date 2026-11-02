@@ -31,6 +31,7 @@ NAV_ITEMS = [
     ("dashboard", "🏠", "Tổng quan"),
     ("buildings", "🏢", "Tòa nhà"),
     ("rooms", "📋", "Phòng"),
+    ("customers", "👥", "Khách hàng"),
 ]
 
 
@@ -257,11 +258,13 @@ class MainWindow(QMainWindow):
         from dashboard import DashboardPage
         from building_view import BuildingPage
         from room_view import RoomPage
+        from customer_view import CustomerPage
 
         self.stack = QStackedWidget()
         self.page_dashboard = DashboardPage(self.mgr)
         self.page_buildings = BuildingPage(self.mgr)
         self.page_rooms = RoomPage(self.mgr)
+        self.page_customers = CustomerPage(self.mgr)
 
         self.page_dashboard.open_rooms.connect(self._open_rooms_from_dashboard)
         self.page_dashboard.open_buildings.connect(lambda: self.navigate("buildings"))
@@ -275,6 +278,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.page_dashboard)     # 0
         self.stack.addWidget(self.page_buildings)     # 1
         self.stack.addWidget(self.page_rooms)         # 2
+        self.stack.addWidget(self.page_customers)     # 3
         rl.addWidget(self.stack, 1)
         root.addWidget(right, 1)
 
@@ -324,6 +328,7 @@ class MainWindow(QMainWindow):
             ("Ctrl+1", lambda: self.navigate("dashboard")),
             ("Ctrl+2", lambda: self.navigate("buildings")),
             ("Ctrl+3", lambda: self.navigate("rooms")),
+            ("Ctrl+4", lambda: self.navigate("customers")),
             ("Ctrl+Z", self.page_rooms._undo),
             ("Esc", self._hide_popup),
         ]
@@ -341,7 +346,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ điều hướng
     def navigate(self: 'MainWindow', key: str):
         self._nav = key
-        idx = {"dashboard": 0, "buildings": 1, "rooms": 2}.get(key, 0)
+        idx = {"dashboard": 0, "buildings": 1, "rooms": 2, "customers": 3}.get(key, 0)
         self.stack.setCurrentIndex(idx)
         for k, b in self.nav_buttons.items():
             b.setProperty("active", "true" if k == key else "false")
@@ -353,6 +358,8 @@ class MainWindow(QMainWindow):
             "dashboard": ("Tổng quan", "Theo dõi số liệu kho phòng và hoạt động gần đây"),
             "buildings": ("Tòa nhà & chủ nhà", "Quản lý danh sách tòa nhà và thông tin liên hệ"),
             "rooms": ("Danh sách phòng", "Tìm kiếm, lọc và cập nhật thông tin từng căn hộ"),
+            "customers": ("Khách hàng & Sale",
+                          "Khách tiềm năng - pipeline bán hàng - phân tích mình sai điểm nào"),
         }
         t, sub = titles.get(key, ("Tổng quan", ""))
         self.page_header_title.setText(t)
@@ -370,6 +377,8 @@ class MainWindow(QMainWindow):
                 self.page_rooms.reset_filters()
             else:
                 self.page_rooms.refresh()
+        elif key == "customers":
+            self.page_customers.refresh()
 
     def _open_rooms_from_dashboard(self, filt: Dict):
         self.navigate("rooms")
@@ -527,6 +536,7 @@ class MainWindow(QMainWindow):
         self.page_dashboard.refresh()
         self.page_buildings.refresh()
         self.page_rooms.refresh()
+        self.page_customers.refresh()
         self.lbl_status.setText("Đã làm mới (F5)")
 
     # ------------------------------------------------------------------ vòng sự kiện

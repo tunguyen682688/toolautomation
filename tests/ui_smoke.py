@@ -298,6 +298,79 @@ def main() -> int:
 
     check("Thanh trạng thái đồng bộ hiển thị", sync_status)
 
+    # ---------------------------------------------------------- trang khách hàng (CRM)
+    def customers():
+        win.navigate("customers")
+        app.processEvents()
+        page = win.page_customers
+
+        # 1) form thêm khách: prefill từ yêu cầu + đọc payload (không mở modal)
+        from customer_view import CustomerForm
+        dlg = CustomerForm(None, {"area": "P.13", "budget_max": 7000000}, win)
+        dlg.fields["name"].setText("Nguyễn Thị Bích")
+        dlg.fields["phone"].setText("0909123456")
+        payload = dlg.payload()
+        assert payload["area"] == "P.13" and payload["budget_max"] == "7000000", \
+            f"Prefill form khách sai: {payload}"
+
+        # 2) thêm khách -> bảng có 1 dòng
+        page.cm.add_customer(payload)
+        page.refresh()
+        app.processEvents()
+        assert page._model.data_row_count() == 1, "Bảng khách không có dữ liệu"
+
+        # 3) tìm không dấu (2 token AND)
+        page.ed_search.setText("nguyen thi bich")
+        app.processEvents()
+        assert page._model.data_row_count() == 1, "Tìm không dấu tên khách lỗi"
+        page.ed_search.setText("bich 0909")
+        app.processEvents()
+        assert page._model.data_row_count() == 1, "Tìm AND theo SĐT lỗi"
+        page.ed_search.clear()
+        app.processEvents()
+
+        # 4) chọn dòng dữ liệu đầu -> panel chi tiết nhận khách
+        idx = None
+        for r in range(page._model.rowCount()):
+            if page._model.data_row_at(r):
+                idx = page._model.index(r, 0)
+                break
+        assert idx is not None, "Không thấy dòng dữ liệu trong bảng khách"
+        page._on_row_clicked(idx)
+        app.processEvents()
+        assert page.panel.customer and page.panel.customer["phone"] == "0909123456", \
+            "Panel chi tiết không nhận khách"
+
+        # 5) đổi trạng thái pipeline: hẹn xem -> MẤT (chọn lý do = điểm sai khi sale)
+        assert page.panel.apply_status("viewing"), "Chuyển trạng thái thất bại"
+        assert page.panel.apply_status("lost", lose_reason="price"), \
+            "Chuyển về Mất khách thất bại"
+        st = page.cm.stats()
+        assert st["by_status"]["lost"] == 1 and st["by_reason"]["price"] == 1, \
+            f"Không lưu được lý do mất khách: {st['by_reason']}"
+
+        # 6) tab Phân tích: funnel + lý do mất + nhận định render đủ
+        page.tabs.setCurrentIndex(1)
+        app.processEvents()
+        assert page.analytics.funnel_bars.row_count() >= 1, "Funnel chưa có dữ liệu"
+        assert page.analytics.reason_bars.row_count() == 1, "Chưa thấy lý do mất khách"
+        assert "Nhận định" in page.analytics.lbl_insight.text(), "Thiếu nhận định"
+
+        # 7) khách thứ 2 chốt -> tỷ lệ chốt 50% + lọc theo trạng thái
+        page.cm.add_customer({"name": "Lê Văn Cường", "phone": "0911222333"})
+        page.cm.change_status(page.cm.customers("cuong")[0]["id"], "won")
+        page.refresh()
+        app.processEvents()
+        assert page.cm.stats()["conversion"] == 50.0, "Tỷ lệ chốt sai"
+        page.cmb_status.setCurrentIndex(page.cmb_status.findData("lost"))
+        app.processEvents()
+        assert page._model.data_row_count() == 1, "Lọc theo trạng thái lỗi"
+        page.cmb_status.setCurrentIndex(0)
+        app.processEvents()
+        assert page._model.data_row_count() == 2, "Bỏ lọc trạng thái lỗi"
+
+    check("Trang khách hàng: bảng pipeline + chi tiết + đổi trạng thái + phân tích", customers)
+
     win.close()
     app.processEvents()
 

@@ -338,6 +338,17 @@ class RoomPage(QWidget):
         self.btn_reset.clicked.connect(self.reset_filters)
         row2.addWidget(self.btn_reset)
 
+        # ---- TẠO NHANH TỪ ZALO: copy ảnh -> dán -> Enter là xong ----
+        self.btn_quick = QPushButton("⚡ Tạo nhanh từ Zalo")
+        self.btn_quick.setToolTip(
+            "Trong Zalo: copy ảnh phòng (Ctrl+C) -> bấm nút này.\n"
+            "Ảnh tự hiện ra + tự lưu vào thư mục quy ước của phòng khi Lưu;\n"
+            "chữ trong tin tự điền địa chỉ / giá / dạng phòng.\n"
+            "Check live: TÒA NHÀ đã có? · LOẠI PHÒNG đã có trong tòa? · trùng mã?\n"
+            "Enter = Lưu & mở phòng.")
+        self.btn_quick.setCursor(Qt.PointingHandCursor)
+        row2.addWidget(self.btn_quick)
+
         # ---- TÌM THEO YÊU CẦU KHÁCH: dán câu khách hỏi -> 4 vòng mở rộng khu vực ----
         self.btn_request = QPushButton("🎯 Yêu cầu khách")
         self.btn_request.setToolTip(

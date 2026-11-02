@@ -452,6 +452,80 @@ def main() -> int:
 
     check("Trang khách hàng: dắt căn + điểm sai xử lý (panel + phân tích)", showings)
 
+    # ------------------------------------ tạo nhanh từ Zalo: ảnh -> phòng
+    def quick_add_zalo():
+        from PySide6.QtGui import QImage
+
+        import media_manager as mm
+        from quick_add import QuickAddDialog
+
+        win.navigate("rooms")
+        app.processEvents()
+        assert hasattr(win.page_rooms, "btn_quick"), "Thiếu nút ⚡ Tạo nhanh từ Zalo"
+
+        # clipboard = ảnh copy từ Zalo -> dialog phải tự đọc được
+        QApplication.clipboard().setImage(QImage(48, 48, QImage.Format_RGB32))
+        before = mgr.stats()["total"]
+        dlg = QuickAddDialog(mgr, win)
+        assert len(dlg.img_paths) == 1 and Path(dlg.img_paths[0]).exists(), \
+            f"Không đọc được ảnh clipboard: {dlg.img_paths}"
+        assert not dlg.btn_save.isEnabled(), "Nút Lưu phải tắt khi thiếu dữ liệu"
+
+        # 1 Enter là xong: địa chỉ + số căn + loại phòng -> Lưu
+        dlg.ed["house_number"].setText("317")
+        dlg.ed["street"].setText("Đường Quick Add")
+        dlg.ed["unit_code"].setText("S-77")
+        dlg.ed["room_type"].setCurrentText("Studio")
+        dlg._run_check()
+        app.processEvents()
+        assert dlg.btn_save.isEnabled(), "Đã đủ dữ liệu mà Lưu vẫn tắt"
+        assert "Tòa mới" in dlg.banner_label.text(), \
+            f"Chưa báo được trạng thái tòa nhà: {dlg.banner_label.text()[:160]}"
+        assert "Studio" in dlg.banner_label.text(), "Chưa báo được loại phòng sẽ tạo"
+
+        dlg._save()
+        assert dlg.saved_room_id and mgr.stats()["total"] == before + 1, "Không lưu được phòng nhanh"
+        assert dlg.saved_images == 1, f"Số ảnh lưu sai: {dlg.saved_images}"
+        room = mgr.room(dlg.saved_room_id)
+        assert mm.room_media_dir(room, settings).exists(), "Ảnh không vào thư mục quy ước"
+        assert mm.list_media(room, settings), "Danh sách ảnh phòng trống sau khi Lưu"
+        dlg.deleteLater()
+
+        # check TÒA NHÀ đã có + LOẠI PHÒNG đã có trong tòa
+        dlg2 = QuickAddDialog(mgr, win)
+        dlg2.ed["house_number"].setText("317")
+        dlg2.ed["street"].setText("Đường Quick Add")
+        dlg2.ed["unit_code"].setText("S-78")
+        dlg2.ed["room_type"].setCurrentText("Studio")
+        dlg2._run_check()
+        app.processEvents()
+        b2 = dlg2.banner_label.text()
+        assert "tự liên kết" in b2, f"Không nhận ra tòa đã có: {b2[:200]}"
+        assert "1 phòng Studio" in b2 and "S-77" in b2, f"Không liệt kê loại phòng đã có: {b2[:240]}"
+
+        # trùng số căn -> CHẶN Lưu + nút mở bản ghi cũ
+        dlg2.ed["unit_code"].setText("S-77")
+        dlg2._run_check()
+        app.processEvents()
+        assert "ĐÃ TỒN TẠI" in dlg2.banner_label.text(), "Không báo được phòng đã tồn tại"
+        assert not dlg2.btn_save.isEnabled(), "Không chặn được Lưu khi trùng số căn"
+        assert dlg2._dup_id, "Không nắm được id bản ghi trùng"
+        dlg2.deleteLater()
+
+        # chữ tin nhắn (không có ảnh) -> tự điền địa chỉ / giá / loại phòng
+        QApplication.clipboard().setText("Cho thuê 319 Đường Quick Add giá 6.5tr studio")
+        dlg3 = QuickAddDialog(mgr, win)
+        assert dlg3.ed["house_number"].text() == "319", "Không autofill số nhà từ tin nhắn"
+        assert dlg3.ed["room_type"].currentText() == "Studio", "Không autofill loại phòng"
+        assert dlg3.ed["price"].text().replace(".", "") == "6500000", \
+            f"Không autofill giá: {dlg3.ed['price'].text()}"
+        assert dlg3.img_paths == [], "Chữ trong clipboard không được coi là ảnh"
+        dlg3.deleteLater()
+        QApplication.clipboard().clear()
+
+    check("Tạo nhanh từ Zalo: dán ảnh -> lưu phòng + ảnh vào thư mục + check tòa/loại phòng",
+          quick_add_zalo)
+
     win.close()
     app.processEvents()
 

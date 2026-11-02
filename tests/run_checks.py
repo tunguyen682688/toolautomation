@@ -612,6 +612,76 @@ def main():
 
     check("22. CRM dắt căn + điểm sai tư vấn & xử lý", t22_showings)
 
+    # ---------------------------------------------------------------- tạo nhanh từ Zalo
+    def t23_quick_add():
+        """Tạo nhanh từ Zalo: tách tin nhắn + check TÒA NHÀ / LOẠI PHÒNG + chống trùng."""
+        import quick_add as qa
+
+        # 1) giá ô text -> NULL (Chưa biết), KHÔNG ép về 0
+        assert_true(qa.norm_price("") is None, "Giá rỗng phải NULL (Chưa biết)")
+        assert_true(qa.norm_price("abc") is None, "Giá không đọc được phải NULL")
+        assert_true(qa.norm_price("7tr") == 7000000, "norm_price('7tr') sai")
+        assert_true(qa.norm_price("7.500.000") == 7500000, "norm_price dấu chấm sai")
+
+        # 2) tách trường từ tin nhắn Zalo / tin đăng
+        txt = ("Cho thuê căn hộ 321 Kiểm Thử T23 P.99 giá 7.5tr studio, 45m2, tầng 3")
+        f = qa.autofill_from_text(txt)
+        assert_true(f.get("house_number") == "321"
+                    and "Kiểm Thử" in str(f.get("street", "")),
+                    f"Tách địa chỉ sai: {f}")
+        assert_true(f.get("price") == 7500000, f"Tách giá sai: {f.get('price')}")
+        assert_true(f.get("room_type") == "Studio", f"Tách loại phòng sai: {f.get('room_type')}")
+        assert_true(str(f.get("ward", "")).startswith("P"), f"Tách phường sai: {f.get('ward')}")
+        assert_true(qa.autofill_from_text("cam on ban nhieu") == {},
+                    "Chữ không giống tin đăng phải trả {} (không tự điền bừa)")
+
+        # 3) check loại phòng khi chưa có tòa
+        assert_true(qa.type_in_building(db, "", "Studio")["count"] == 0,
+                    "building_id rỗng phải trả 0")
+
+        # 4) lưu phòng "từ Zalo" -> tự tạo tòa nhà mới
+        p = {
+            "house_number": f["house_number"], "street": f["street"],
+            "ward": f.get("ward", ""), "district": f.get("district", ""),
+            "unit_code": "T23-01", "room_code": "",
+            "room_type": f.get("room_type", ""), "price": qa.norm_price("7.5tr"),
+            "status": "new",
+        }
+        res = mgr.check_new(dict(p))
+        assert_true(not res.room_exists, "Phòng mới bị báo trùng oan")
+        r1 = mgr.add_room(dict(p), actor="tester", force=bool(res.has_warn))
+        b = db.find_building_by_address(
+            tu.address_key(p["house_number"], p["street"], p["ward"], p["district"]))
+        assert_true(b and b["id"] == r1["building_id"], "Không tạo/tìm đúng tòa nhà")
+
+        # 5) LOẠI PHÒNG đã có trong tòa chưa?
+        th = qa.type_in_building(db, b["id"], "Studio")
+        assert_true(th["count"] == 1 and "T23-01" in th["codes"],
+                    f"Check loại phòng sai: {th}")
+        assert_true(qa.type_in_building(db, b["id"], "Penthouse")["count"] == 0,
+                    "Tòa chưa có Penthouse phải trả 0")
+
+        # 6) phòng thứ 2 cùng tòa + cùng loại -> nối cùng tòa (không sinh tòa trùng)
+        p2 = dict(p)
+        p2["unit_code"] = "T23-02"
+        res2 = mgr.check_new(dict(p2))
+        r2 = mgr.add_room(dict(p2), actor="tester", force=bool(res2.has_warn))
+        assert_true(r2["building_id"] == b["id"], "Phòng 2 phải nối cùng tòa")
+        th2 = qa.type_in_building(db, b["id"], "Studio")
+        assert_true(th2["count"] == 2, f"Phải có 2 phòng Studio cùng tòa: {th2}")
+
+        # 7) trùng số căn -> bị chặn
+        try:
+            mgr.add_room(dict(p), actor="tester")
+            assert_true(False, "Vẫn cho thêm phòng trùng số căn")
+        except DuplicateError as e:
+            assert_true(e.result.room_exists, f"Sai loại chặn: {e.result.recommended}")
+
+        print(f"    -> tòa {b['code']}: Studio x{th2['count']} ({', '.join(th2['codes'])}) · "
+              f"autofill keys={sorted(f)} · giá '7.5tr'={qa.norm_price('7.5tr')}")
+
+    check("23. Tạo nhanh từ Zalo: tách tin nhắn + check tòa/nhà + loại phòng", t23_quick_add)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)

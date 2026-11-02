@@ -274,6 +274,7 @@ class MainWindow(QMainWindow):
         self.page_rooms.duplicate_open.connect(self._focus_room)
         self.page_rooms.open_building.connect(self._open_building_from_room)
         self.page_rooms.btn_request.clicked.connect(self._open_request_dialog)
+        self.page_rooms.btn_quick.clicked.connect(self._open_quick_add)
 
         self.stack.addWidget(self.page_dashboard)     # 0
         self.stack.addWidget(self.page_buildings)     # 1
@@ -422,6 +423,28 @@ class MainWindow(QMainWindow):
 
         dlg.open_rooms.connect(_open)
         dlg.exec()
+
+    # ------------------------------------------------------------------ tạo nhanh từ Zalo
+    def _open_quick_add(self):
+        """Copy ảnh từ Zalo -> bấm ⚡ -> Enter: tạo phòng + ảnh vào thư mục quy ước.
+
+        Hộp thoại tự đọc clipboard (ảnh + chữ tin nhắn), check tòa nhà / loại
+        phòng / trùng mã trước khi lưu.
+        """
+        from PySide6.QtWidgets import QDialog
+
+        from quick_add import QuickAddDialog
+        dlg = QuickAddDialog(self.mgr, self)
+        dlg.open_room.connect(self._focus_room)
+        ok = dlg.exec() == QDialog.Accepted and dlg.saved_room_id
+        if ok:
+            self.refresh_all()
+            self._focus_room(dlg.saved_room_id)
+            r = self.mgr.room(dlg.saved_room_id) or {}
+            code = r.get("room_code") or r.get("unit_code") or dlg.saved_room_id
+            self.lbl_status.setText(
+                f"✅ Đã tạo {code} — {dlg.saved_images} ảnh đã vào thư mục quy ước"
+                if dlg.saved_images else f"✅ Đã tạo {code}")
 
     # ------------------------------------------------------------------ tìm kiếm
     def focus_search(self):

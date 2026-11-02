@@ -521,8 +521,10 @@ class RoomEditForm(QDialog):
         def _g2(f):
             self.ed["room_code"] = self._line("Ví dụ: P-86")
             self.ed["unit_code"] = self._line("Số căn thực tế - khoá chống trùng")
-            self.ed["floor"] = self._line("Ví dụ: 3, Lầu 2")
-            self.ed["area"] = self._line("Ví dụ: 45, 60.5")
+            self.ed["floor"], self.ed["floor_unknown"] = self._line_with_unknown(
+                "Ví dụ: 3, Lầu 2")
+            self.ed["area"], self.ed["area_unknown"] = self._line_with_unknown(
+                "Ví dụ: 45, 60.5")
             self.ed["room_type"] = QComboBox()
             self.ed["room_type"].setEditable(True)
             self.ed["room_type"].addItems(ROOM_TYPES)
@@ -532,31 +534,39 @@ class RoomEditForm(QDialog):
             f.addWidget(self.ed["unit_code"], 0, 3)
             f.addWidget(QLabel("Tầng:"), 1, 0)
             f.addWidget(self.ed["floor"], 1, 1)
-            f.addWidget(QLabel("Diện tích (m2):"), 1, 2)
-            f.addWidget(self.ed["area"], 1, 3)
+            f.addWidget(self.ed["floor_unknown"], 1, 2)
+            f.addWidget(QLabel("Diện tích (m2):"), 1, 3)
+            f.addWidget(self.ed["area"], 1, 4)
+            f.addWidget(self.ed["area_unknown"], 1, 5)
             f.addWidget(QLabel("Dạng phòng:"), 2, 0)
-            f.addWidget(self.ed["room_type"], 2, 1, 1, 3)
+            f.addWidget(self.ed["room_type"], 2, 1, 1, 4)
         add_group(2, _g2)
 
         # ---------- nhóm 3: Giá & cọc ----------
         def _g3(f):
-            self.ed["price"] = self._line("Ví dụ: 7000000 hoặc 7.5tr")
-            self.ed["deposit"] = self._line("Ví dụ: 7000000")
+            self.ed["price"], self.ed["price_unknown"] = self._line_with_unknown(
+                "Ví dụ: 7000000 hoặc 7.5tr")
+            self.ed["deposit"], self.ed["deposit_unknown"] = self._line_with_unknown(
+                "Ví dụ: 7000000")
             f.addWidget(QLabel("Giá thuê (VNĐ):"), 0, 0)
             f.addWidget(self.ed["price"], 0, 1)
+            f.addWidget(self.ed["price_unknown"], 0, 2)
             f.addWidget(QLabel("Tiền cọc (VNĐ):"), 1, 0)
             f.addWidget(self.ed["deposit"], 1, 1)
+            f.addWidget(self.ed["deposit_unknown"], 1, 2)
         add_group(3, _g3)
 
         # ---------- nhóm 4: Tiện ích ----------
         def _g4(f):
-            self.ed["capacity"] = self._line("Ví dụ: 2 Ng/2 Xe")
+            self.ed["capacity"], self.ed["capacity_unknown"] = self._line_with_unknown(
+                "Ví dụ: 2 Ng/2 Xe")
             self.ed["ev_support"] = self._tribune("⚡ Xe điện")
             self.ed["foreign_guest"] = self._tribune("🌏 Khách nước ngoài")
             f.addWidget(QLabel("Tối đa (người/xe):"), 0, 0)
             f.addWidget(self.ed["capacity"], 0, 1)
+            f.addWidget(self.ed["capacity_unknown"], 0, 2)
             f.addWidget(self.ed["ev_support"], 1, 0, 1, 2)
-            f.addWidget(self.ed["foreign_guest"], 1, 2, 1, 2)
+            f.addWidget(self.ed["foreign_guest"], 1, 3, 1, 2)
         add_group(4, _g4)
 
         # ---------- nhóm 5: Chính sách ----------
@@ -630,6 +640,31 @@ class RoomEditForm(QDialog):
         cmb.setToolTip(label)
         return cmb
 
+    def _line_with_unknown(self, placeholder: str = "") -> tuple:
+        """Ô nhập kèm checkbox 'Chưa biết'. Trả về (line_edit, checkbox)."""
+        container = QWidget()
+        container.setObjectName("UnknownContainer")
+        container.setStyleSheet("background:transparent;")
+        h = QHBoxLayout(container)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(6)
+        ed = self._line(placeholder)
+        chk = QCheckBox("Chưa biết")
+        chk.setObjectName("UnknownChk")
+        chk.setStyleSheet("font-size:11px; background:transparent;")
+        chk.setToolTip("Chưa rõ thông tin cần hỏi chủ nhà")
+        h.addWidget(ed)
+        h.addWidget(chk)
+        h.addStretch(1)
+
+        def _toggle(checked):
+            ed.setDisabled(checked)
+            ed.setStyleSheet(
+                "background:#2D3748; color:#718096;" if checked else "")
+
+        chk.toggled.connect(_toggle)
+        return ed, chk
+
     # ------------------------------------------------------------------ nút điều khiển
     def _build_buttons(self):
         row = QHBoxLayout()
@@ -656,8 +691,18 @@ class RoomEditForm(QDialog):
         r = self.room
         for key, w in self.ed.items():
             if isinstance(w, QLineEdit):
+                # nếu có checkbox unknown kèm và đang check, bỏ qua set text
+                chk_key = key + "_unknown"
+                if chk_key in self.ed and self.ed[chk_key].isChecked():
+                    continue
                 v = r.get(key, "")
-                w.setText(str(v) if v not in (None, "") else "")
+                if v is None:
+                    # đánh dấu chưa biết
+                    if chk_key in self.ed:
+                        self.ed[chk_key].setChecked(True)
+                    w.setText("")
+                else:
+                    w.setText(str(v) if v not in (None, "") else "")
             elif isinstance(w, QComboBox):
                 if key == "status":
                     i = w.findData(r.get("status", "new"))
@@ -996,6 +1041,10 @@ class RoomEditForm(QDialog):
         def txt(k):
             w = self.ed[k]
             if isinstance(w, QLineEdit):
+                # kiểm tra checkbox unknown kèm theo
+                chk_key = k + "_unknown"
+                if chk_key in self.ed and self.ed[chk_key].isChecked():
+                    return None
                 return w.text().strip()
             if isinstance(w, QComboBox):
                 return w.currentText().strip()
@@ -1025,8 +1074,8 @@ class RoomEditForm(QDialog):
             "unit_code": txt("unit_code"),
             "floor": txt("floor"),
             "room_type": self.ed["room_type"].currentText().strip(),
-            "price": tu.normalize_price(txt("price")),
-            "deposit": tu.normalize_price(txt("deposit")),
+            "price": tu.normalize_price(txt("price")) if txt("price") else None,
+            "deposit": tu.normalize_price(txt("deposit")) if txt("deposit") else None,
             "capacity": txt("capacity"),
             "ev_support": None if ev is None else (1 if ev is True else 0),
             "foreign_guest": None if fg is None else (1 if fg is True else 0),

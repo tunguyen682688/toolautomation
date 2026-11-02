@@ -572,9 +572,15 @@ class RoomEditForm(QDialog):
         # ---------- nhóm 5: Chính sách ----------
         def _g5(f):
             self.ed["pet_policy"] = QComboBox()
-            self.ed["pet_policy"].setEditable(True)
-            self.ed["pet_policy"].addItems(["Cho nuôi Mèo", "Cho nuôi Chó",
-                                            "Cho nuôi (chó/mèo)", "Không nuôi", ""])
+            self.ed["pet_policy"].setEditable(False)
+            self.ed["pet_policy"].addItem("— Chưa biết —", None)
+            self.ed["pet_policy"].addItem("Cho nuôi Mèo", "Cho nuôi Mèo")
+            self.ed["pet_policy"].addItem("Cho nuôi Chó", "Cho nuôi Chó")
+            self.ed["pet_policy"].addItem("Cho nuôi (chó/mèo)", "Cho nuôi (chó/mèo)")
+            self.ed["pet_policy"].addItem("Không nuôi", "Không nuôi")
+            self.ed["pet_policy"].setMinimumWidth(150)
+            self.ed["pet_policy"].setObjectName("Ghost")
+            self.ed["pet_policy"].setToolTip("Chọn chính sách nuôi thú cưng")
             self.ed["pet_note"] = self._line("Chính sách chi tiết (giữ nguyên văn bản gốc)")
             f.addWidget(QLabel("Nuôi thú cưng:"), 0, 0)
             f.addWidget(self.ed["pet_policy"], 0, 1)
@@ -707,6 +713,13 @@ class RoomEditForm(QDialog):
                 if key == "status":
                     i = w.findData(r.get("status", "new"))
                     w.setCurrentIndex(max(0, i))
+                elif key == "pet_policy":
+                    v = r.get(key)
+                    if v is None or v == "":
+                        w.setCurrentIndex(0)  # — Chưa biết —
+                    else:
+                        i = w.findData(v)
+                        w.setCurrentIndex(max(0, i))
                 else:
                     w.setCurrentText(str(r.get(key, "") or ""))
             elif isinstance(w, QCheckBox):
@@ -1021,7 +1034,13 @@ class RoomEditForm(QDialog):
                 if isinstance(w, QLineEdit):
                     w.setText(str(v or ""))
                 elif isinstance(w, QComboBox):
-                    w.setCurrentText(str(v or ""))
+                    if k == "pet_policy":
+                        if v is None or v == "":
+                            w.setCurrentIndex(0)  # — Chưa biết —
+                        else:
+                            w.setCurrentText(str(v))
+                    else:
+                        w.setCurrentText(str(v or ""))
                 elif isinstance(w, QCheckBox):
                     w.setChecked(bool(int(v or 0)))
                 elif isinstance(w, QPlainTextEdit):
@@ -1054,7 +1073,9 @@ class RoomEditForm(QDialog):
                 return str(w.value())
             return ""
 
-        pet_policy = self.ed["pet_policy"].currentText().strip()
+        pet_policy = self.ed["pet_policy"].currentData()  # None | "Cho nuôi Mèo" | ...
+        if pet_policy is not None:
+            pet_policy = str(pet_policy).strip()
         pet_note = txt("pet_note")
         notes = txt("notes")
         if pet_note:

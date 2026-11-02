@@ -1013,13 +1013,13 @@ class RoomPage(QWidget):
         # giá trị hiện tại trong DB (0/1/None hoặc text)
         cur = r.get(field)
         if field == "pet_policy":
-            # pet_policy lưu chuỗi "Cho nuôi"/"Không nuôi"/""
-            cur_norm = "Cho nuôi" if r.get("pet_ok") else ("Không nuôi" if cur else "")
-            new_val = "Cho nuôi" if val is True else ("Không nuôi" if val is False else "")
-            if new_val == cur_norm:
+            # pet_policy lưu None | "Cho nuôi Mèo" | "Không nuôi" | ""
+            cur = r.get(field)
+            new_val = None if val is None else ("Cho nuôi Mèo" if val is True else "Không nuôi")
+            if new_val == cur:
                 return
             changes = {field: new_val}
-            note = f"Khảo sát nhanh {field} -> {new_val or 'chưa biết'}"
+            note = f"Khảo sát nhanh {field} -> {'Chưa biết' if new_val is None else new_val}"
         elif field == "rating":
             try:
                 cur_val = int(r.get("rating") or 0)
@@ -1070,7 +1070,17 @@ class RoomPage(QWidget):
                 idx = val + 1 if 1 <= val <= 5 else 0
             else:
                 v = r.get(field)
-                if v is None:
+                if field == "pet_policy":
+                    # pet_policy lưu chuỗi: None|"Cho nuôi Mèo"|"Không nuôi"|""
+                    if v is None or v == "":
+                        idx = 0  # Chưa biết
+                    elif "không nuôi" in str(v).lower():
+                        idx = 2  # Không
+                    elif "cho nuôi" in str(v).lower():
+                        idx = 1  # Có
+                    else:
+                        idx = 0  # Chưa biết (giá trị không xác định)
+                elif v is None:
                     idx = 0  # Chưa biết (chưa hỏi)
                 elif v == 1 or v is True:
                     idx = 1  # Có

@@ -140,6 +140,59 @@ def main() -> int:
 
     check("Form 8 nhóm: nhập -> lưu -> báo trùng & chặn Lưu", edit_form)
 
+    # -------------------------------------- copy ảnh -> dán vào Zalo nhiều ảnh 1 tin
+    def copy_zalo_multi():
+        from PySide6.QtGui import QImage
+        from PySide6.QtWidgets import QAbstractItemView
+
+        import media_manager as mm
+        from edit_form import ImageUpload
+        from media_panel import MediaPanel
+
+        cdir = Path(tempfile.mkdtemp(prefix="kho_clip_"))
+        files = []
+        for i in (1, 2):
+            p = cdir / f"anh{i}.jpg"
+            QImage(16, 16, QImage.Format_RGB32).save(str(p), "JPG")
+            files.append(str(p))
+
+        # 1) chọn NHIỀU được (mặc định QListWidget là SingleSelection -> không copy đa ảnh)
+        up = ImageUpload(mgr)
+        assert up.list.selectionMode() == QAbstractItemView.ExtendedSelection, \
+            "ImageUpload: không chọn được nhiều ảnh"
+        mp = MediaPanel(mgr)
+        assert mp.list.selectionMode() == QAbstractItemView.ExtendedSelection, \
+            "MediaPanel: không chọn được nhiều file"
+
+        # 2) copy 2 ảnh -> CHỈ dạng file (CF_HDROP): Zalo dán N ảnh trong 1 tin
+        up.set_paths(files)
+        up._copy_image()
+        md = QApplication.clipboard().mimeData()
+        assert md.hasUrls() and len(md.urls()) == 2, \
+            f"Cần 2 file trong clipboard, có {len(md.urls() if md.hasUrls() else [])}"
+        assert not md.hasImage(), \
+            "Nhiều ảnh KHÔNG được để bitmap trong clipboard (Zalo sẽ bóp thành 1 ảnh)"
+
+        # 3) đúng 1 ảnh -> cả file lẫn bitmap (dán ra ảnh ngay ở mọi app)
+        up.set_paths(files[:1])
+        up.list.clearSelection()
+        up._copy_image()
+        md = QApplication.clipboard().mimeData()
+        assert md.hasUrls() and md.hasImage(), "1 ảnh cần có cả file lẫn bitmap"
+
+        # 4) helper: chưa chọn gì ở MediaPanel -> copy tất cả file của phòng
+        assert mm.copy_files_to_clipboard(files) == 2, "copy_files_to_clipboard sai số lượng"
+        assert not QApplication.clipboard().mimeData().hasImage(), \
+            "Copy 2 file phải là file-only"
+
+        # 5) lưu nhanh ảnh từ form vào thư mục quy ước (không mất khi dọn TEMP)
+        room = mgr.rooms("")[0]
+        res = mm.import_files(room, files, mgr.settings)
+        assert res["copied"] or res["skipped"], f"import_files không làm gì: {res}"
+        assert mm.room_media_dir(room, mgr.settings).exists(), "Chưa tạo thư mục quy ước"
+
+    check("Copy ảnh dán Zalo: N ảnh trong 1 tin + chọn nhiều + lưu vào thư mục", copy_zalo_multi)
+
     # ---------------------------------------------------------- bảng phòng
     def room_table():
         win.navigate("rooms")
@@ -247,6 +300,11 @@ def main() -> int:
 
     win.close()
     app.processEvents()
+
+    # Dọn clipboard trước khi thoát: PySide6 6.12 + Qt offscreen crash (0xC0000005)
+    # nếu QApplication bị destroy mà clipboard còn dữ liệu (platform windows thật
+    # không bị). Test copy vừa để file tạm vào clipboard của user -> clear luôn.
+    QApplication.clipboard().clear()
 
     # restore
     settings.set("db_path", old_db, save=False)

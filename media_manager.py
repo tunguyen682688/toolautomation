@@ -187,6 +187,41 @@ def import_files(room: Dict[str, Any], src_paths: List[str], settings,
     return res
 
 
+def copy_files_to_clipboard(paths, image_if_single: bool = True) -> int:
+    """Đưa file vào clipboard dạng CF_HDROP (nhiều file cùng lúc).
+
+    Zalo / Telegram / Explorer đọc CF_HDROP -> dán 1 lần (Ctrl+V) = N file
+    đính kèm trong MỘT tin nhắn. TUYỆT ĐỐI không setImageData khi có nhiều
+    ảnh: clipboard có ảnh bitmap thì Zalo nhận diện là "dán 1 ảnh" -> mất
+    tính năng nhiều ảnh trong 1 tin.
+
+    - image_if_single=True (mặc định): đúng 1 file -> thêm luôn bitmap để dán
+      ra ảnh ngay ở mọi app (chat, Word, Paint...).
+
+    Trả về số file THẬT đã copy (0 = không có gì để copy).
+    """
+    real = [str(Path(p)) for p in (paths or []) if p and Path(p).is_file()]
+    if not real:
+        return 0
+    from PySide6.QtCore import QMimeData, QUrl
+    from PySide6.QtGui import QImage
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        log.warning("copy_files_to_clipboard: chưa có QApplication")
+        return 0
+    mime = QMimeData()
+    # đường dẫn TUYẾT ĐỐI -> Zalo/Explorer nhận được ngay
+    mime.setUrls([QUrl.fromLocalFile(str(Path(p).resolve())) for p in real])
+    if image_if_single and len(real) == 1:
+        img = QImage(real[0])
+        if not img.isNull():
+            mime.setImageData(img)
+    QApplication.clipboard().setMimeData(mime)
+    return len(real)
+
+
 def move_to_trash(paths: List[str], settings) -> List[str]:
     """'Xóa' = chuyển vào <gốc>/_ThungRac/ (giữ thư mục con của phòng) - không mất ngay."""
     root = media_root(settings)

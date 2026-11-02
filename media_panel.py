@@ -12,10 +12,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QRect, QSize, QMimeData, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QRect, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (QColor, QDesktopServices, QIcon, QImageReader,
                            QPixmap, QPainter, QFont, QPen, QPainterPath)
-from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QAbstractItemView, QFileDialog,
+                               QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu,
                                QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
@@ -216,7 +217,9 @@ class MediaPanel(QWidget):
 
         self.btn_add = mini("＋ Thêm", "Chọn ảnh/video để copy vào thư mục quy ước của phòng",
                             self.add_files)
-        self.btn_copy = mini("📋", "Copy file đang chọn -> dán thẳng vào Zalo/Telegram",
+        self.btn_copy = mini("📋", "Copy file đang chọn (chọn nhiều bằng Ctrl/Shift) "
+                                  "-> dán Ctrl+V vào Zalo/Telegram: NHIỀU ảnh trong 1 tin. "
+                                  "Chưa chọn gì = copy TẤT CẢ file của phòng",
                              self.copy_selected)
         self.btn_trash = mini("🗑", "Chuyển file đang chọn vào _ThungRac", self.trash_selected)
         self.btn_open = mini("📂", "Mở thư mục quy ước của phòng", self.open_folder)
@@ -239,6 +242,8 @@ class MediaPanel(QWidget):
         # ---- danh sách thumbnail ----
         self.list = QListWidget()
         self.list.setObjectName("MediaList")
+        # chọn NHIỀU file (Ctrl/Shift/Ctrl+A) để copy 1 lần -> dán nhiều ảnh vào Zalo
+        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.list.setViewMode(QListWidget.IconMode)
         self.list.setIconSize(QSize(self.THUMB, self.THUMB))
         self.list.setResizeMode(QListWidget.Adjust)
@@ -253,7 +258,8 @@ class MediaPanel(QWidget):
         lay.addWidget(self.list)
 
         # hint + trạng thái rỗng
-        self.lbl_empty = QLabel("Chưa có ảnh/video. Bấm ＋ Thêm hoặc KÉO THẢ file vào đây.")
+        self.lbl_empty = QLabel("Chưa có ảnh/video. Bấm ＋ Thêm hoặc KÉO THẢ file vào đây · "
+                                "Chọn nhiều (Ctrl+A) rồi 📋 để dán N ảnh trong 1 tin Zalo.")
         self.lbl_empty.setWordWrap(True)
         self.lbl_empty.setStyleSheet(
             f"color:{theme.c('text3')}; font-size:11.5px; background:{theme.c('bg_alt')};"
@@ -268,6 +274,7 @@ class MediaPanel(QWidget):
         self.room = room
         self._thumb_queue.clear()
         if not room:
+            self._media = []
             self.ed_path.setText("")
             self.list.clear()
             self.lbl_empty.setVisible(True)
@@ -283,12 +290,11 @@ class MediaPanel(QWidget):
         """Quét lại thư mục quy ước (FileSystem là nguồn sự thật)."""
         self.list.clear()
         if not self.room:
+            self._media = []
+            self.lbl_count.setText("")
             return
         self._media = mm.list_media(self.room, self.mgr.settings)
-        n_img = sum(1 for m in self._media if m["kind"] == "image")
-        n_vid = sum(1 for m in self._media if m["kind"] == "video")
-        self.lbl_count.setText(
-            f"({len(self._media)} file · {n_img} ảnh · {n_vid} video)" if self._media else "")
+        self._update_count()
         self.lbl_empty.setVisible(not self._media)
         self.count_changed.emit(len(self._media))
         for m in self._media:
@@ -296,13 +302,20 @@ class MediaPanel(QWidget):
             it.setData(Qt.UserRole, m["path"])
             tip = (f"{'Ảnh' if m['kind'] == 'image' else 'Video' if m['kind'] == 'video' else 'File'} · "
                    f"{mm.human_size(m['size'])} · {mm.age_label(m['mtime'])}\n{m['path']}\n"
-                   "Bấm đúp: mở xem · 📋: copy để dán vào Zalo")
+                   "Bấm đúp: mở xem · 📋: copy để dán vào Zalo (nhiều ảnh = 1 tin)")
             it.setToolTip(tip)
             it.setSizeHint(QSize(self.THUMB + 8, self.THUMB + 22))
             it.setIcon(QIcon(_placeholder_pixmap(self.THUMB)))
             self.list.addItem(it)
             self._thumb_queue.append(it)
         self._pump_thumbs()
+
+    def _update_count(self):
+        """Cập nhật nhãn đếm file (cũng dùng để hoàn nguyên sau khi báo copy xong)."""
+        n_img = sum(1 for m in self._media if m["kind"] == "image")
+        n_vid = sum(1 for m in self._media if m["kind"] == "video")
+        self.lbl_count.setText(
+            f"({len(self._media)} file · {n_img} ảnh · {n_vid} video)" if self._media else "")
 
     def _pump_thumbs(self):
         """Nạp thumbnail từng đợt nhỏ để không đơ UI khi phòng có nhiều ảnh."""
@@ -356,14 +369,22 @@ class MediaPanel(QWidget):
         return [it.data(Qt.UserRole) for it in self.list.selectedItems()]
 
     def copy_selected(self):
-        """LẤY NHANH: copy file vào clipboard -> dán thẳng vào Zalo/Telegram/Mail."""
-        paths = self._selected_paths()
-        if not paths:
+        """LẤY NHANH: copy file vào clipboard -> dán Ctrl+V vào Zalo/Telegram.
+
+        - Đang chọn (Ctrl/Shift/Ctrl+A) -> copy đúng các file đang chọn;
+          chưa chọn gì -> copy TẤT CẢ file của phòng (thao tác phổ biến nhất).
+        - Nhiều file -> chỉ dạng file (CF_HDROP): Zalo đính kèm N ảnh trong 1 tin.
+        - Phản hồi rõ trên nhãn đếm rồi tự hoàn nguyên sau vài giây.
+        """
+        paths = self._selected_paths() or [m["path"] for m in getattr(self, "_media", [])]
+        n = mm.copy_files_to_clipboard(paths)
+        if not n:
             return
-        mime = QMimeData()
-        mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
-        QApplication.clipboard().setMimeData(mime)
-        self.lbl_count.setToolTip(f"Đã copy {len(paths)} file vào clipboard - dán (Ctrl+V) vào Zalo/Telegram")
+        self.lbl_count.setText(f"✅ Đã copy {n} file → dán Ctrl+V vào Zalo/Telegram")
+        self.lbl_count.setToolTip(
+            f"Đã copy {n} file vào clipboard - dán (Ctrl+V) vào Zalo/Telegram là "
+            f"{n} ảnh/video trong MỘT tin nhắn")
+        QTimer.singleShot(4500, self._update_count)
 
     def trash_selected(self):
         paths = self._selected_paths()
@@ -392,20 +413,37 @@ class MediaPanel(QWidget):
 
     def _sel_changed(self):
         n = len(self.list.selectedItems())
-        for b in (self.btn_copy, self.btn_trash):
-            b.setEnabled(n > 0)
-            b.setToolTip(f"{'Copy' if b is self.btn_copy else 'Bỏ vào thùng rác'} "
-                         f"{n} file đang chọn" if n else
-                         ("Copy file -> dán vào Zalo" if b is self.btn_copy else "Chuyển vào _ThungRac"))
+        # nút Copy luôn bật khi có file (chưa chọn = copy tất cả)
+        self.btn_copy.setEnabled(bool(self._media))
+        self.btn_trash.setEnabled(n > 0)
+        if n:
+            self.btn_copy.setToolTip(f"Copy {n} file đang chọn -> dán Ctrl+V vào Zalo: "
+                                     f"{n} ảnh trong 1 tin")
+            self.btn_trash.setToolTip(f"Bỏ {n} file đang chọn vào _ThungRac")
+        else:
+            self.btn_copy.setToolTip("Chưa chọn gì -> sẽ copy TẤT CẢ file của phòng "
+                                     "-> dán Ctrl+V vào Zalo: nhiều ảnh trong 1 tin")
+            self.btn_trash.setToolTip("Chọn file trước (Ctrl/Shift) để chuyển vào _ThungRac")
 
     def _context_menu(self, pos):
         menu = QMenu(self)
         menu.addAction("🔍 Mở xem (trình xem mặc định)", lambda: self._open_item(self.list.itemAt(pos)))
-        menu.addAction("📋 Copy file (dán vào Zalo)", self.copy_selected)
+        menu.addAction("📋 Copy file (dán Ctrl+V vào Zalo - nhiều ảnh trong 1 tin)",
+                       self.copy_selected)
+        menu.addAction("📋 Copy TẤT CẢ file của phòng", self._copy_all)
         menu.addAction("📂 Mở thư mục", self.open_folder)
         menu.addSeparator()
         menu.addAction("🗑 Bỏ vào _ThungRac", self.trash_selected)
         menu.exec(self.list.mapToGlobal(pos))
+
+    def _copy_all(self):
+        """Copy toàn bộ file của phòng (bỏ qua lựa chọn đang có)."""
+        paths = [m["path"] for m in getattr(self, "_media", [])]
+        n = mm.copy_files_to_clipboard(paths)
+        if not n:
+            return
+        self.lbl_count.setText(f"✅ Đã copy TẤT CẢ {n} file → dán Ctrl+V vào Zalo")
+        QTimer.singleShot(4500, self._update_count)
 
     # ================================================================ kéo thả
     def dragEnterEvent(self, ev):

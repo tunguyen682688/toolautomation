@@ -20,9 +20,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QMimeData, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import (QColor, QClipboard, QDesktopServices, QFont, QPixmap,
-                           QStandardItem, QStandardItemModel)
+from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import (QColor, QClipboard, QDesktopServices, QFont, QIcon,
+                           QPixmap, QStandardItem, QStandardItemModel)
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFrame, QFormLayout, QGridLayout, QHBoxLayout, QLabel,
@@ -141,6 +141,8 @@ class ImageUpload(QWidget):
 
         self.list = QListWidget()
         self.list.setViewMode(QListWidget.IconMode)
+        # chọn NHIỀU ảnh (Ctrl/Shift/Ctrl+A) để copy 1 lần -> dán nhiều ảnh vào Zalo
+        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.list.setIconSize(QSize(72, 72))
         self.list.setFixedHeight(96)
         self.list.setSpacing(6)
@@ -156,12 +158,15 @@ class ImageUpload(QWidget):
         btn_add.clicked.connect(self._add)
         row.addWidget(btn_add)
 
-        btn_copy = QPushButton("📋 Copy ảnh")
-        btn_copy.setObjectName("Chip")
-        btn_copy.setCursor(Qt.PointingHandCursor)
-        btn_copy.setToolTip("Copy ảnh đầu tiên vào clipboard để dán vào Zalo/Telegram")
-        btn_copy.clicked.connect(self._copy_image)
-        row.addWidget(btn_copy)
+        self.btn_copy = QPushButton("📋 Copy ảnh")
+        self.btn_copy.setObjectName("Chip")
+        self.btn_copy.setCursor(Qt.PointingHandCursor)
+        self.btn_copy.setToolTip(
+            "Copy ảnh ĐANG CHỌN (chưa chọn = tất cả) để dán vào Zalo/Telegram:\n"
+            "- 1 ảnh: dán ra ảnh ngay ở mọi app\n"
+            "- Nhiều ảnh: dán Ctrl+V 1 lần = N ảnh trong MỘT tin nhắn Zalo")
+        self.btn_copy.clicked.connect(self._copy_image)
+        row.addWidget(self.btn_copy)
 
         btn_zalo = QPushButton("📂 Mở thư mục Zalo")
         btn_zalo.setObjectName("Chip")
@@ -179,7 +184,9 @@ class ImageUpload(QWidget):
         lay.addLayout(row)
 
         # nhãn hướng dẫn dán ảnh
-        self.lbl_hint = QLabel("Mẹo: copy ảnh từ Zalo (chuột phải → Copy) rồi bấm Ctrl+V vào đây")
+        self.lbl_hint = QLabel(
+            "Mẹo: copy ảnh từ Zalo (chuột phải → Copy) rồi bấm Ctrl+V vào đây · "
+            "Chọn nhiều ảnh (Ctrl+A) rồi bấm 📋 Copy để dán N ảnh trong 1 tin Zalo")
         self.lbl_hint.setObjectName("Muted")
         self.lbl_hint.setStyleSheet("font-size:10.5px; background:transparent; color:#64748B;")
         self.lbl_hint.setWordWrap(True)
@@ -255,7 +262,15 @@ class ImageUpload(QWidget):
         it = self.list.itemAt(pos)
         if not it:
             return
+        # chuột phải vào ảnh chưa chắc đã chọn -> chọn luôn item đó
+        if not it.isSelected():
+            self.list.clearSelection()
+            it.setSelected(True)
         m = QMenu(self)
+        n_sel = len(self.list.selectedItems())
+        m.addAction(f"📋 Copy {n_sel} ảnh (dán Ctrl+V vào Zalo - nhiều ảnh 1 tin)",
+                    self._copy_image)
+        m.addSeparator()
         m.addAction("Xóa", lambda: self._remove(it))
         m.exec(self.list.mapToGlobal(pos))
 
@@ -286,18 +301,22 @@ class ImageUpload(QWidget):
 
     # ---------------------------------------------------------------- copy ảnh để gửi khách
     def _copy_image(self):
-        """Copy ảnh đầu tiên vào clipboard để dán vào Zalo/Telegram."""
-        if not self._paths:
+        """Copy ảnh vào clipboard để dán vào Zalo/Telegram.
+
+        - Ảnh ĐANG CHỌN (Ctrl/Shift/Ctrl+A); chưa chọn gì -> copy TẤT CẢ.
+        - 1 ảnh  -> cả file lẫn bitmap: dán ra ảnh ngay ở mọi app.
+        - Nhiều ảnh -> CHỈ dạng file (CF_HDROP): Zalo/Telegram nhận N file
+          -> dán Ctrl+V 1 lần = N ảnh trong MỘT tin nhắn (không bị bóp thành
+          1 ảnh bitmap như trước).
+        """
+        sel = [it.data(Qt.UserRole) for it in self.list.selectedItems()]
+        paths = [p for p in (sel or list(self._paths)) if p and Path(p).is_file()]
+        if not paths:
             return
-        cb = QApplication.clipboard()
-        mime = QMimeData()
-        # copy đường dẫn file (Windows Explorer, Zalo, Telegram nhận được)
-        mime.setUrls([QUrl.fromLocalFile(p) for p in self._paths])
-        # đồng thời copy ảnh đầu tiên (dạng ảnh thuần để dán trực tiếp)
-        img = QImage(self._paths[0])
-        if not img.isNull():
-            mime.setImageData(img)
-        cb.setMimeData(mime)
+        n = mm.copy_files_to_clipboard(paths)
+        if n:
+            self.btn_copy.setText(f"📋 Đã copy {n} ảnh ✓")
+            QTimer.singleShot(3500, lambda: self.btn_copy.setText("📋 Copy ảnh"))
 
 
 # ------------------------------------------------------------------ model địa chỉ cho QCompleter
@@ -742,8 +761,13 @@ class RoomEditForm(QDialog):
                     n = txt.count("★") + txt.count("⭐")
                     w.set_value(min(5, max(0, n)))
         if isinstance(self.img_upload, ImageUpload) and r.get("id"):
-            # ảnh đã lưu sẽ được nạp từ thư mục quy ước khi mở form chi tiết
-            pass
+            # nạp ảnh đã lưu trong thư mục quy ước -> hiển thị + copy/dán được ngay
+            try:
+                self.img_upload.set_paths(
+                    [m["path"] for m in mm.list_media(r, self.mgr.settings)
+                     if m["kind"] == "image"])
+            except Exception:  # noqa: BLE001
+                pass
         if r.get("unit_code") == "" and r.get("room_code"):
             pass  # giữ trống - không tự đoán số căn
 
@@ -1150,6 +1174,18 @@ class RoomEditForm(QDialog):
             QMessageBox_Critical(self, "Không lưu được", str(e))
             return
 
+        # "LƯU NHANH" ảnh: copy các ảnh trong form vào thư mục quy ước của phòng.
+        # Ảnh dán từ Zalo nằm trong thư mục TEMP -> không copy thì sẽ mất khi
+        # Windows dọn tạm; trùng tên trùng dung lượng đã có sẵn -> tự bỏ qua.
+        n_img_saved = 0
+        try:
+            imgs = [p for p in self.img_upload.paths() if Path(p).is_file()]
+            if imgs:
+                res = mm.import_files(room, imgs, self.mgr.settings)
+                n_img_saved = len(res["copied"]) + len(res["skipped"])
+        except Exception:  # noqa: BLE001
+            n_img_saved = 0
+
         self.saved.emit(room["id"])
         self._clear_draft()   # đã lưu xong -> xóa nháp
         if more:
@@ -1172,10 +1208,13 @@ class RoomEditForm(QDialog):
             self.ed["floor"].clear()
             self.ed["drive_link"].clear()
             self.ed["notes"].clear()
+            self.img_upload.set_paths([])   # phòng nhập kế bắt đầu với danh sách ảnh sạch
             self.ed["room_code"].setFocus()
             self.banner_label.setText(f"<span style='color:{theme.c('ok')};'>✓ Đã lưu phòng "
                                       f"<b>{payload.get('room_code') or payload.get('unit_code')}</b> "
-                                      f"- tiếp tục nhập phòng kế.</span>")
+                                      + (f"· 📷 {n_img_saved} ảnh đã vào thư mục quy ước "
+                                         if n_img_saved else "")
+                                      + "- tiếp tục nhập phòng kế.</span>")
             self.banner.show()
             return
         self.accept()

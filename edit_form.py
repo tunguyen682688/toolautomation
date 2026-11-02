@@ -14,13 +14,15 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 import json
+import tempfile
+import time
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QAbstractListModel, QModelIndex, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import (QColor, QFont, QPixmap, QStandardItem,
-                           QStandardItemModel)
+from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QMimeData, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import (QColor, QClipboard, QDesktopServices, QFont, QPixmap,
+                           QStandardItem, QStandardItemModel)
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFrame, QFormLayout, QGridLayout, QHBoxLayout, QLabel,
@@ -115,7 +117,14 @@ class StarRating(QWidget):
 
 # ------------------------------------------------------------------ widget upload ảnh trong form
 class ImageUpload(QWidget):
-    """Chọn ảnh phòng, hiển thị thumbnail."""
+    """Chọn ảnh phòng, hiển thị thumbnail.
+
+    Hỗ trợ:
+    - Nhấn ＋ Thêm ảnh để chọn file
+    - Kéo thả (drag & drop) ảnh từ thư mục/Zalo vào đây
+    - Dán ảnh từ clipboard (Ctrl+V) sau khi copy từ Zalo
+    - Mở thư mục ảnh Zalo mặc định
+    """
 
     files_changed = Signal(list)
 
@@ -124,6 +133,7 @@ class ImageUpload(QWidget):
         self.mgr = manager
         self._paths: List[str] = []
         self.setFixedHeight(110)
+        self.setAcceptDrops(True)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -136,6 +146,7 @@ class ImageUpload(QWidget):
         self.list.setSpacing(6)
         self.list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._ctx)
+        self.list.installEventFilter(self)  # cho phép Ctrl+V trên list
         lay.addWidget(self.list)
 
         row = QHBoxLayout()
@@ -144,6 +155,14 @@ class ImageUpload(QWidget):
         btn_add.setCursor(Qt.PointingHandCursor)
         btn_add.clicked.connect(self._add)
         row.addWidget(btn_add)
+
+        btn_zalo = QPushButton("📂 Mở thư mục Zalo")
+        btn_zalo.setObjectName("Chip")
+        btn_zalo.setCursor(Qt.PointingHandCursor)
+        btn_zalo.setToolTip("Mở thư mục ảnh Zalo mặc định (Pictures/Zalo)")
+        btn_zalo.clicked.connect(self._open_zalo_folder)
+        row.addWidget(btn_zalo)
+
         btn_clear = QPushButton("🗑 Xóa tất cả")
         btn_clear.setObjectName("Danger")
         btn_clear.setCursor(Qt.PointingHandCursor)
@@ -152,6 +171,60 @@ class ImageUpload(QWidget):
         row.addStretch(1)
         lay.addLayout(row)
 
+        # nhãn hướng dẫn dán ảnh
+        self.lbl_hint = QLabel("Mẹo: copy ảnh từ Zalo (chuột phải → Copy) rồi bấm Ctrl+V vào đây")
+        self.lbl_hint.setObjectName("Muted")
+        self.lbl_hint.setStyleSheet("font-size:10.5px; background:transparent; color:#64748B;")
+        self.lbl_hint.setWordWrap(True)
+        lay.addWidget(self.lbl_hint)
+
+    # ---------------------------------------------------------------- drag & drop
+    def dragEnterEvent(self, ev):
+        if ev.mimeData().hasUrls():
+            ev.acceptProposedAction()
+
+    def dropEvent(self, ev):
+        urls = ev.mimeData().urls()
+        for url in urls:
+            p = url.toLocalFile()
+            if p and Path(p).suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".bmp"):
+                if p not in self._paths:
+                    self._paths.append(p)
+        self._refresh()
+        self.files_changed.emit(self._paths)
+
+    # ---------------------------------------------------------------- clipboard paste
+    def eventFilter(self, obj, ev):
+        if obj is self.list and ev.type() == QEvent.KeyPress:
+            if ev.key() == Qt.Key_V and ev.modifiers() & Qt.ControlModifier:
+                self._paste_clipboard()
+                return True
+        return super().eventFilter(obj, ev)
+
+    def _paste_clipboard(self):
+        cb = QClipboard()
+        mime = cb.mimeData()
+        if mime.hasImage():
+            # ảnh trong clipboard (copy từ Zalo) -> lưu tạm rồi thêm
+            from PySide6.QtGui import QImage
+            img = cb.image()
+            if not img.isNull():
+                tmp = Path(tempfile.gettempdir()) / f"zalo_paste_{int(time.time()*1000)}.png"
+                img.save(str(tmp), "PNG")
+                self._paths.append(str(tmp))
+                self._refresh()
+                self.files_changed.emit(self._paths)
+                return
+        if mime.hasUrls():
+            for url in mime.urls():
+                p = url.toLocalFile()
+                if p and Path(p).suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".bmp"):
+                    if p not in self._paths:
+                        self._paths.append(p)
+            self._refresh()
+            self.files_changed.emit(self._paths)
+
+    # ---------------------------------------------------------------- actions
     def _add(self):
         files, _ = QFileDialog.getOpenFileNames(
             self, "Chọn ảnh phòng", "",
@@ -159,6 +232,13 @@ class ImageUpload(QWidget):
         self._paths.extend(files)
         self._refresh()
         self.files_changed.emit(self._paths)
+
+    def _open_zalo_folder(self):
+        from pathlib import Path
+        p = Path.home() / "Pictures" / "Zalo"
+        if not p.exists():
+            p = Path.home() / "Pictures"
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
 
     def _clear(self):
         self._paths.clear()
@@ -168,7 +248,6 @@ class ImageUpload(QWidget):
         it = self.list.itemAt(pos)
         if not it:
             return
-        from PySide6.QtWidgets import QMenu
         m = QMenu(self)
         m.addAction("Xóa", lambda: self._remove(it))
         m.exec(self.list.mapToGlobal(pos))

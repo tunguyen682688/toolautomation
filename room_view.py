@@ -1006,11 +1006,11 @@ class RoomPage(QWidget):
         cmb = self.survey_combos.get(field)
         if not cmb:
             return
-        val = cmb.currentData()
+        val = cmb.currentData()  # None | True | False
         r = self.mgr.room(rid) or {}
         if not r:
             return
-        # giá trị hiện tại
+        # giá trị hiện tại trong DB (0/1/None hoặc text)
         cur = r.get(field)
         if field == "pet_policy":
             # pet_policy lưu chuỗi "Cho nuôi"/"Không nuôi"/""
@@ -1020,14 +1020,7 @@ class RoomPage(QWidget):
                 return
             changes = {field: new_val}
             note = f"Khảo sát nhanh {field} -> {new_val or 'chưa biết'}"
-        else:
-            # surveyed / ev_support / foreign_guest: None|0|1
-            cur_norm = bool(cur) if cur is not None else None
-            if bool(val) == cur_norm:
-                return
-            changes = {field: val}
-            note = f"Khảo sát nhanh {field} -> {'Có' if val is True else ('Không' if val is False else 'chưa biết')}"
-        if field == "rating":
+        elif field == "rating":
             try:
                 cur_val = int(r.get("rating") or 0)
             except (TypeError, ValueError):
@@ -1043,6 +1036,14 @@ class RoomPage(QWidget):
                 return
             changes = {"rating": new_val}
             note = f"Khảo sát nhanh đánh giá -> {new_val if new_val else 'chưa biết'} sao"
+        else:
+            # surveyed / ev_support / foreign_guest: None|0|1
+            cur_norm = cur  # 0 | 1 | None
+            new_val = 1 if val is True else (0 if val is False else None)
+            if new_val == cur_norm:
+                return
+            changes = {field: new_val}
+            note = f"Khảo sát nhanh {field} -> {'Có' if new_val == 1 else ('Không' if new_val == 0 else 'chưa biết')}"
         try:
             self.mgr.update_room(
                 rid, changes,
@@ -1069,7 +1070,14 @@ class RoomPage(QWidget):
                 idx = val + 1 if 1 <= val <= 5 else 0
             else:
                 v = r.get(field)
-                idx = 1 if v is True else (2 if v is False else 0)
+                if v is None:
+                    idx = 0  # Chưa biết
+                elif v == 1 or v is True:
+                    idx = 1  # Có
+                elif v == 0 or v is False:
+                    idx = 2  # Không
+                else:
+                    idx = 0
             cmb.setCurrentIndex(idx)
             cmb.blockSignals(False)
 

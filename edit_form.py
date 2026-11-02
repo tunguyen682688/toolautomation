@@ -645,10 +645,11 @@ class RoomEditForm(QDialog):
             elif isinstance(w, QCheckBox):
                 if key == "surveyed":
                     w.setChecked(bool(r.get("surveyed")))
-                elif key == "foreign_guest":
-                    w.setChecked(bool(r.get("foreign_guest")))
-                else:
-                    w.setChecked(bool(r.get("ev_support")))
+            elif key in ("ev_support", "foreign_guest"):
+                # tribune combo: None|True|False
+                v = r.get(key)
+                idx = 0 if v is None else (1 if v == 1 or v is True else 2)
+                w.setCurrentIndex(idx)
             elif isinstance(w, QPlainTextEdit):
                 w.setPlainText(str(r.get("notes", "") or ""))
             elif isinstance(w, StarRating):
@@ -884,8 +885,8 @@ class RoomEditForm(QDialog):
             v = int(p.get(k) or 0)
             if v and isinstance(self.ed[k], QLineEdit):
                 self.ed[k].setText(str(v))
-        if p.get("ev_support") and isinstance(self.ed.get("ev_support"), QCheckBox):
-            self.ed["ev_support"].setChecked(True)
+        if p.get("ev_support") and isinstance(self.ed.get("ev_support"), QComboBox):
+            self.ed["ev_support"].setCurrentIndex(1)  # Có
         # ghi chú: lưu nguyên văn tin gốc để tham khảo (nếu ô ghi chú đang trống)
         note_src = str(p.get("notes") or "").strip()
         if note_src:
@@ -1005,8 +1006,8 @@ class RoomEditForm(QDialog):
             "price": tu.normalize_price(txt("price")),
             "deposit": tu.normalize_price(txt("deposit")),
             "capacity": txt("capacity"),
-            "ev_support": 1 if ev is True else (0 if ev is False else 0),
-            "foreign_guest": 1 if fg is True else (0 if fg is False else 0),
+            "ev_support": None if ev is None else (1 if ev is True else 0),
+            "foreign_guest": None if fg is None else (1 if fg is True else 0),
             "area": txt("area"),
             "pet_policy": pet_policy,
             "rating": txt("rating"),

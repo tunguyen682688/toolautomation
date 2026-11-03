@@ -35,3 +35,4 @@ dist/
 
 # pynsist build dir (installer)
 build_nsis_new/
+build_installer/

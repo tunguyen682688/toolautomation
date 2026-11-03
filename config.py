@@ -49,7 +49,9 @@ def _resolve_env() -> str:
 APP_ENV = _resolve_env()
 
 # ------------------------------------------------------------------ ĐƯỜNG DẪN (theo env)
-DATA_DIR = BASE_DIR / "data" / APP_ENV          # data/dev, data/staging, data/prod
+# Các đường dẫn này được tính khi import; DB thực tế dùng settings.get("db_path")
+# Thư mục logs/cache/theo dõi db_path -> dùng get_data_dir() lúc runtime.
+DATA_DIR = BASE_DIR / "data" / APP_ENV          # data/dev, data/staging, data/prod (mặc định)
 CONFIG_DIR = BASE_DIR / "config"
 LOG_DIR = DATA_DIR / "logs"
 CACHE_DIR = DATA_DIR / "cache"
@@ -60,6 +62,26 @@ DB_FILE = DATA_DIR / "kho_phong.db"
 # đường dẫn của phiên bản CŨ (trước khi tách môi trường) -> dùng để migrate 1 lần
 LEGACY_DB_FILE = BASE_DIR / "data" / "kho_phong.db"
 LEGACY_SETTINGS_FILE = CONFIG_DIR / "settings.json"
+
+
+def _data_dir_from_db_path(db_path: str) -> Path:
+    """Tính thư mục dữ liệu (chứa logs, cache, backup) từ đường dẫn file DB."""
+    return Path(db_path).parent
+
+
+def get_data_dir() -> Path:
+    """Thư mục dữ liệu hiện tại (theo setting db_path, fallback DATA_DIR)."""
+    from config import get_settings
+    s = get_settings()
+    return _data_dir_from_db_path(s.get("db_path"))
+
+
+def get_log_dir() -> Path:
+    return get_data_dir() / "logs"
+
+
+def get_cache_dir() -> Path:
+    return get_data_dir() / "cache"
 
 
 def _migrate_legacy() -> None:

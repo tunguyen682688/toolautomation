@@ -7,7 +7,7 @@ import logging.handlers
 import sys
 from pathlib import Path
 
-from config import LOG_DIR
+from config import get_log_dir
 
 _FMT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 _configured = False
@@ -28,8 +28,12 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     sh.setLevel(logging.WARNING)
     root.addHandler(sh)
 
+    # dùng hàm động để có đúng LOG_DIR theo setting db_path (có thể đổi lúc chạy)
+    _log_dir = get_log_dir()
+    _log_dir.mkdir(parents=True, exist_ok=True)
+
     fh = logging.handlers.RotatingFileHandler(
-        LOG_DIR / "app.log", maxBytes=2 * 1024 * 1024, backupCount=5, encoding="utf-8"
+        _log_dir / "app.log", maxBytes=2 * 1024 * 1024, backupCount=5, encoding="utf-8"
     )
     fh.setFormatter(fmt)
     fh.setLevel(logging.DEBUG)
@@ -37,7 +41,7 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
 
     # Ghi riêng log đồng bộ để dễ chẩn đoán
     sync_fh = logging.handlers.RotatingFileHandler(
-        LOG_DIR / "sync.log", maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        _log_dir / "sync.log", maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8"
     )
     sync_fh.setFormatter(fmt)
     logging.getLogger("kho.sync").addHandler(sync_fh)

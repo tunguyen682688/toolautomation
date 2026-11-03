@@ -33,7 +33,7 @@ def app_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
-def _finish_selftest(app, win, mgr, db, log) -> None:
+def _finish_selftest(app, win, mgr, db, log, is_selftest: bool) -> None:
     """Tự kiểm tra bản build (chạy với `--selftest`): nhập mẫu -> mở trang -> tìm -> xuất Excel."""
     errs: list = []
     lines: list = []
@@ -106,13 +106,15 @@ def _finish_selftest(app, win, mgr, db, log) -> None:
               f"{out.stat().st_size if out.exists() else 0} bytes")
 
         # 6) tìm được file cấu hình / ghi log
-        from config import DATA_DIR, CONFIG_DIR, APP_ENV, SETTINGS_FILE, DB_FILE
+        from config import CONFIG_DIR, APP_ENV, SETTINGS_FILE, DB_FILE, get_data_dir
+        dynamic_data_dir = get_data_dir()
         check("Ghi được dữ liệu cạnh file exe",
-              DATA_DIR.exists() and CONFIG_DIR.exists(), str(DATA_DIR))
-        # 7) môi trường được tách riêng
-        check(f"Data nằm trong thư mục env '{APP_ENV}'",
-              DATA_DIR.name == APP_ENV and str(DB_FILE).startswith(str(DATA_DIR)),
-              str(DATA_DIR))
+              dynamic_data_dir.exists() and CONFIG_DIR.exists(), str(dynamic_data_dir))
+        # 7) môi trường được tách riêng (chỉ khi KHÔNG phải selftest - vì selftest set db_path temp)
+        if not is_selftest:
+            check(f"Data nằm trong thư mục env '{APP_ENV}'",
+                  dynamic_data_dir.name == APP_ENV and str(DB_FILE).startswith(str(dynamic_data_dir)),
+                  str(dynamic_data_dir))
         check("Settings riêng theo env",
               SETTINGS_FILE.name == f"settings_{APP_ENV}.json"
               and SETTINGS_FILE.parent.exists(), str(SETTINGS_FILE))
@@ -128,9 +130,9 @@ def _finish_selftest(app, win, mgr, db, log) -> None:
 
     # bản build là GUI (không có console) -> ghi kết quả ra file để đọc được
     try:
-        from config import DATA_DIR
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        (DATA_DIR / "selftest_result.txt").write_text(
+        from config import get_data_dir
+        get_data_dir().mkdir(parents=True, exist_ok=True)
+        (get_data_dir() / "selftest_result.txt").write_text(
             "\n".join(lines) + "\n", encoding="utf-8")
     except Exception:  # noqa: BLE001
         pass
@@ -265,7 +267,7 @@ def main() -> int:
     if SELFTEST:
         # ---- tự kiểm tra bản build: nhập dữ liệu mẫu, mở các trang, tìm kiếm ----
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(600, lambda: _finish_selftest(app, win, mgr, db, log))
+        QTimer.singleShot(600, lambda: _finish_selftest(app, win, mgr, db, log, SELFTEST))
 
     code = app.exec()
     # dọn dẹp

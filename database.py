@@ -387,6 +387,43 @@ class Database:
             except Exception:
                 pass
 
+    def reconnect(self, path: str) -> None:
+        """Chuyển kết nối sang file DB khác, GIỮ NGUYÊN đối tượng Database.
+
+        Dùng khi đổi thư mục dữ liệu trong Cài đặt: mgr / checker / worker đang
+        giữ `self.db` vẫn hoạt động bình thường - không cần khởi động lại app.
+        """
+        new_path = str(path)
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            Path(new_path).parent.mkdir(parents=True, exist_ok=True)
+            self.path = new_path
+            self._conn = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._conn.execute("PRAGMA busy_timeout=10000")
+            self.migrate()
+
+    def copy_to(self, dst) -> str:
+        """Sao chép DB ĐANG MỞ sang file đích bằng SQLite backup API.
+
+        An toàn khi kết nối còn mở / đang có WAL: bản sao là file DB hoàn chỉnh.
+        """
+        dst = Path(dst)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst_conn = sqlite3.connect(str(dst))
+        try:
+            with self._lock:
+                self._conn.backup(dst_conn)
+        finally:
+            dst_conn.close()
+        return str(dst)
+
     # ------------------------------------------------------------------ primitives
     @property
     def lock(self) -> threading.RLock:

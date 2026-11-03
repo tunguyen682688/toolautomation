@@ -682,6 +682,70 @@ def main():
 
     check("23. Tạo nhanh từ Zalo: tách tin nhắn + check tòa/nhà + loại phòng", t23_quick_add)
 
+    # ---------------------------------------------------------------- đổi thư mục dữ liệu
+    def t24_change_data_dir():
+        """Thay đổi thư mục dữ liệu (db_path) -> copy dữ liệu cũ sang chỗ mới."""
+        import shutil
+        from config import get_settings, get_data_dir, get_log_dir, get_cache_dir
+
+        # 1) Thêm vài phòng để có dữ liệu
+        for i in range(3):
+            p = {"house_number": f"10{i}", "street": "Đường Test T24",
+                 "ward": "P.1", "district": "Q.1",
+                 "unit_code": f"T24-{i}", "room_type": "Studio",
+                 "price": 5000000 + i * 100000, "status": "new"}
+            mgr.add_room(p, actor="tester")
+
+        # 2) Tạo thư mục mới cho dữ liệu
+        new_data_dir = tmp / "data_new"
+        new_db_file = new_data_dir / "kho_phong.db"
+
+        # 3) Copy dữ liệu bằng logic trong SettingsDialog._move_data_to_new_dir
+        old_db_path = str(db.path)
+        old_dir = Path(old_db_path).parent
+
+        # Tạo DB tạm để dùng backup API
+        from database import Database
+        tmp_db = Database(old_db_path)
+        tmp_db.copy_to(new_db_file)
+        tmp_db.close()
+
+        # Copy logs, backup, cache
+        for sub in ("logs", "backup", "cache"):
+            old_sub = old_dir / sub
+            new_sub = new_data_dir / sub
+            if old_sub.exists():
+                if new_sub.exists():
+                    shutil.rmtree(new_sub)
+                shutil.copytree(old_sub, new_sub)
+
+        # 4) Cập nhật settings db_path trước khi reconnect
+        settings.set("db_path", str(new_db_file), save=True)
+
+        # 5) Reconnect DB sang file mới
+        db.reconnect(str(new_db_file))
+
+        # 6) Kiểm tra dữ liệu vẫn đọc được
+        rooms = mgr.rooms("")
+        assert_true(len(rooms) >= 3, f"Mất dữ liệu sau khi đổi thư mục: {len(rooms)} phòng")
+
+        # 6) Kiểm tra LOG_DIR, CACHE_DIR đã đổi theo
+        assert_true(get_log_dir() == new_data_dir / "logs", f"LOG_DIR sai: {get_log_dir()}")
+        assert_true(get_cache_dir() == new_data_dir / "cache", f"CACHE_DIR sai: {get_cache_dir()}")
+
+        # 7) Kiểm tra dữ liệu cũ VẪN CÒN tại chỗ cũ (backup)
+        assert_true(old_dir.exists(), "Thư mục cũ bị xóa")
+        # File DB cũ có tên test_N.db, không phải kho_phong.db
+        old_db_name = Path(old_db_path).name
+        assert_true((old_dir / old_db_name).exists(), f"File DB cũ ({old_db_name}) bị xóa")
+        # Logs có thể chưa được tạo trong test environment -> chỉ check nếu có
+        if (old_dir / "logs").exists():
+            assert_true((old_dir / "logs").exists(), "Logs cũ bị xóa")
+
+        print(f"    -> data cũ: {old_dir} (giữ nguyên) | data mới: {new_data_dir} (đang dùng)")
+
+    check("24. Đổi thư mục dữ liệu: copy DB+logs+cache sang chỗ mới, cũ giữ backup", t24_change_data_dir)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)

@@ -79,9 +79,24 @@ class SettingsDialog(QDialog):
         self.ed["auto_save"].setChecked(bool(self.settings.get("auto_save", True)))
         form.addRow("", self.ed["auto_save"])
 
+        # ---- thư mục dữ liệu (DB + logs + backup + cache) ----
+        drow = QHBoxLayout()
+        self.ed["db_path"] = QLineEdit(str(self.settings.get("db_path")))
+        self.ed["db_path"].setPlaceholderText("Chọn thư mục chứa kho_phong.db, logs, backup, cache")
+        self.ed["db_path"].setToolTip(
+            "Thư mục lưu trữ dữ liệu cục bộ: file SQLite + logs + backup + cache.\n"
+            "Đổi -> chương trình sẽ COPY toàn bộ dữ liệu cũ sang chỗ mới, "
+            "chỗ cũ giữ làm backup, chạy ngay ở chỗ mới.")
+        btn_dpath = QPushButton("Chọn...")
+        btn_dpath.clicked.connect(self._pick_data_dir)
+        drow.addWidget(self.ed["db_path"], 1)
+        drow.addWidget(btn_dpath)
+        form.addRow("Thư mục dữ liệu:", drow)
+
+        # hiển thị đường dẫn file DB thật (read-only)
         db_path = QLineEdit(str(self.settings.get("db_path")))
         db_path.setReadOnly(True)
-        db_path.setToolTip("File dữ liệu cục bộ (SQLite) - không chỉnh tay.")
+        db_path.setToolTip("File dữ liệu cục bộ (SQLite) - tính từ thư mục dữ liệu.")
         form.addRow("File dữ liệu:", db_path)
 
         # ---- thư mục ảnh/video phòng (quy ước Data Image/<Quận>/<Đường>/<số>-<mã>/<loại> <giá>tr) ----
@@ -98,12 +113,14 @@ class SettingsDialog(QDialog):
         mrow.addWidget(btn_mroot)
         form.addRow("Thư mục ảnh/video:", mrow)
 
-        from config import APP_ENV, env_badge, DATA_DIR, SETTINGS_FILE
-        env_row = QLineEdit(f"{env_badge()}  ·  data: {DATA_DIR}  ·  config: {SETTINGS_FILE}")
+        from config import APP_ENV, env_badge, get_data_dir, SETTINGS_FILE
+        current_data_dir = get_data_dir()
+        env_row = QLineEdit(f"{env_badge()}  ·  data: {current_data_dir}  ·  config: {SETTINGS_FILE}")
         env_row.setReadOnly(True)
         env_row.setToolTip(
             "Môi trường đang chạy. Đổi bằng cờ --env dev|staging|prod.\n"
-            "Mỗi môi trường có data/ và settings RIÊNG - không ảnh hưởng lẫn nhau.")
+            "Mỗi môi trường có data/ và settings RIÊNG - không ảnh hưởng lẫn nhau.\n"
+            "Thư mục dữ liệu hiện tại (tính từ setting db_path): chứa DB, logs, backup, cache.")
         form.addRow("Môi trường:", env_row)
         lay.addLayout(form)
 
@@ -190,6 +207,12 @@ class SettingsDialog(QDialog):
         d = QFileDialog.getExistingDirectory(self, "Chọn thư mục gốc ảnh/video", start)
         if d:
             self.ed["media_root"].setText(d)
+
+    def _pick_data_dir(self):
+        start = str(self.ed["db_path"].text()) or str(Path.cwd())
+        d = QFileDialog.getExistingDirectory(self, "Chọn thư mục dữ liệu (chứa kho_phong.db, logs, backup, cache)", start)
+        if d:
+            self.ed["db_path"].setText(d)
 
     def _creds_status(self) -> str:
         p = str(self.ed["credentials_file"].text()).strip()
@@ -317,6 +340,85 @@ class SettingsDialog(QDialog):
                 vals[key] = int(w.value())
             elif isinstance(w, QComboBox):
                 vals[key] = w.currentData()
+
+        # Xử lý đổi thư mục dữ liệu
+        old_db_path = str(self.settings.get("db_path"))
+        new_db_path = vals.get("db_path", old_db_path)
+        if new_db_path and new_db_path != old_db_path:
+            # Chuẩn hoá: người dùng chọn thư mục -> file DB là kho_phong.db trong đó
+            new_db_dir = Path(new_db_path)
+            new_db_file = new_db_dir / "kho_phong.db"
+            vals["db_path"] = str(new_db_file)
+
+            # Copy dữ liệu cũ sang chỗ mới (DB + logs + backup + cache)
+            # Chỗ cũ giữ nguyên làm backup
+            self._move_data_to_new_dir(old_db_path, str(new_db_file))
+
         self.settings.update(vals)
         self.saved.emit(vals)
         self.accept()
+
+    def _move_data_to_new_dir(self, old_db_path: str, new_db_path: str):
+        """Copy toàn bộ dữ liệu (DB, logs, backup, cache) sang thư mục mới.
+
+        Thư mục cũ KHÔNG bị xóa - giữ làm backup.
+        """
+        from PySide6.QtWidgets import QMessageBox
+        import shutil
+
+        old_dir = Path(old_db_path).parent
+        new_dir = Path(new_db_path).parent
+
+        if not old_dir.exists():
+            QMessageBox.warning(self, "Không tìm thấy dữ liệu cũ",
+                                f"Thư mục dữ liệu cũ không tồn tại:\n{old_dir}")
+            return
+
+        try:
+            # 1) Tạo thư mục mới
+            new_dir.mkdir(parents=True, exist_ok=True)
+
+            # 2) Copy file DB chính + WAL + SHM (nếu có) - dùng SQLite backup API an toàn
+            old_db = Path(old_db_path)
+            new_db = Path(new_db_path)
+            if old_db.exists():
+                # Import Database để dùng backup API
+                from database import Database
+                tmp_db = Database(old_db_path)
+                tmp_db.copy_to(new_db)
+                tmp_db.close()
+
+            # 3) Copy logs/
+            old_logs = old_dir / "logs"
+            new_logs = new_dir / "logs"
+            if old_logs.exists():
+                if new_logs.exists():
+                    shutil.rmtree(new_logs)
+                shutil.copytree(old_logs, new_logs)
+
+            # 4) Copy backup/
+            old_backup = old_dir / "backup"
+            new_backup = new_dir / "backup"
+            if old_backup.exists():
+                if new_backup.exists():
+                    shutil.rmtree(new_backup)
+                shutil.copytree(old_backup, new_backup)
+
+            # 5) Copy cache/
+            old_cache = old_dir / "cache"
+            new_cache = new_dir / "cache"
+            if old_cache.exists():
+                if new_cache.exists():
+                    shutil.rmtree(new_cache)
+                shutil.copytree(old_cache, new_cache)
+
+            QMessageBox.information(self, "Đổi thư mục dữ liệu thành công",
+                                    f"Đã copy dữ liệu sang:\n{new_dir}\n\n"
+                                    f"Thư mục cũ vẫn giữ nguyên tại:\n{old_dir}\n\n"
+                                    f"Ứng dụng sẽ chạy ngay ở chỗ mới.")
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Lỗi khi chuyển dữ liệu",
+                                 f"Không thể copy dữ liệu sang thư mục mới:\n{e}\n\n"
+                                 f"Cài đặt KHÔNG được lưu. Vui lòng thử lại.")
+            # Không lưu setting db_path nếu lỗi
+            raise

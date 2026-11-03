@@ -272,6 +272,12 @@ def main() -> int:
 
         d3 = SettingsDialog(mgr.settings, win)
         assert d3.tabs.count() == 4, "Thiếu tab trong Cài đặt"
+        
+        # Check tab Chung có ô "Thư mục dữ liệu" với nút Chọn...
+        d3.tabs.setCurrentIndex(0)  # tab Chung
+        app.processEvents()
+        assert "db_path" in d3.ed, "Thiếu ô Thư mục dữ liệu trong tab Chung"
+        assert d3.ed["db_path"].toolTip().startswith("Thư mục lưu trữ dữ liệu"), "Tooltip sai cho ô Thư mục dữ liệu"
         d3.deleteLater()
 
         # ---- Tìm theo yêu cầu khách: nút 🎯 + dialog parse live + 4 vòng kết quả ----

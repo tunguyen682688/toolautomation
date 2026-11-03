@@ -256,8 +256,8 @@ _STATS_CACHE = None
 def _stats_cache_file():
     global _STATS_CACHE
     if _STATS_CACHE is None:
-        from config import CACHE_DIR
-        _STATS_CACHE = CACHE_DIR / "stats_formulas.json"
+        from config import get_cache_dir
+        _STATS_CACHE = get_cache_dir() / "stats_formulas.json"
     return _STATS_CACHE
 
 

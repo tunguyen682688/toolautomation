@@ -22,7 +22,7 @@ from models import RoomFilter, RoomStatus
 import theme
 from theme import APP_QSS, status_bg, status_color, status_label
 
-from config import APP_ENV, env_badge, DATA_DIR
+from config import APP_ENV, env_badge, get_data_dir
 
 # màu nhận diện môi trường (nhắc người dùng đang thao tác ở đâu)
 ENV_COLORS = {"prod": "#16A34A", "staging": "#D97706", "dev": "#6B7280"}
@@ -308,8 +308,9 @@ class MainWindow(QMainWindow):
             "font-weight: 700; font-size: 11px; border-radius: 10px; padding: 0 10px;")
         self.lbl_env.setToolTip(
             f"Môi trường hiện tại: {APP_ENV}\n"
-            f"Dữ liệu: {DATA_DIR}\n\n"
-            "Đổi môi trường bằng cờ --env dev|staging|prod khi khởi động.")
+            f"Dữ liệu: {get_data_dir()}\n\n"
+            "Đổi môi trường bằng cờ --env dev|staging|prod khi khởi động.\n"
+            "Thư mục dữ liệu có thể đổi trong Cài đặt -> Chung.")
         sb.addPermanentWidget(self.lbl_env, 0)
 
         self.lbl_status = QLabel("Sẵn sàng")
@@ -511,6 +512,10 @@ class MainWindow(QMainWindow):
         dlg = SettingsDialog(self.mgr.settings, self)
 
         def on_saved(vals: Dict[str, Any]):
+            # Đổi thư mục dữ liệu (DB + logs + backup + cache)
+            if "db_path" in vals and vals.get("db_path") != self.mgr.db.path:
+                self._reconnect_database(str(vals.get("db_path")))
+
             if "ui_theme" in vals:
                 self.apply_theme(str(vals.get("ui_theme") or "dark"))
             if "google_enabled" in vals and vals.get("google_enabled"):
@@ -525,6 +530,26 @@ class MainWindow(QMainWindow):
 
         dlg.saved.connect(on_saved)
         dlg.exec()
+
+    def _reconnect_database(self, new_db_path: str):
+        """Chuyển kết nối DB sang file mới (khi user đổi thư mục dữ liệu trong Cài đặt)."""
+        from PySide6.QtWidgets import QMessageBox
+
+        try:
+            # 1) reconnect database instance (giữ nguyên đối tượng, đổi path)
+            self.mgr.db.reconnect(new_db_path)
+
+            # 2) Cập nhật lại InventoryManager.checker (cùng dùng self.db -> đã OK)
+            #    Và sync_worker dùng self.db -> đã OK
+
+            # 3) Setup lại logging với LOG_DIR mới
+            from logger import setup_logging
+            setup_logging()
+
+            self.lbl_status.setText(f"Đã chuyển dữ liệu sang: {new_db_path}")
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Lỗi chuyển dữ liệu",
+                                 f"Không thể kết nối DB mới:\n{e}")
 
     # ------------------------------------------------------------------ giao diện 2 chế độ
     def toggle_theme(self):

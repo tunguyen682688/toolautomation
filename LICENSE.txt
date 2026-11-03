@@ -1,0 +1,8 @@
+KhoPhongCanHo - Quản lý kho phòng căn hộ cho thuê
+Version 1.0.0
+Copyright (c) 2026 Tú Nguyễn Land
+
+Phần mềm này được cấp phép cho việc sử dụng nội bộ.
+Không được phân phối, bán lại hoặc reverse engineering.
+
+Liên hệ: tunguyen682688@gmail.com

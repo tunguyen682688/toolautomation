@@ -32,3 +32,6 @@ dist/
 *.spec.bak
 
 # Loi tu lenh echo build.bat (redirect ->) DEV/ PROD/ STAGING/
+
+# pynsist build dir (installer)
+build_nsis_new/

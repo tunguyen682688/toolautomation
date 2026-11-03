@@ -220,12 +220,12 @@ Lần chạy đầu nếu DB trống, chương trình sẽ **đề nghị nhập
 
 ## 5. Bộ kiểm thử (chạy được ngay, không cần mạng)
 
-### 5.1. Kiểm thử backend — 24 tình huống
+### 5.1. Kiểm thử backend — 25 tình huống
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'     # console Windows cp1252 -> tránh lỗi hiển thị UTF-8
 python tests\run_checks.py
-# kỳ vọng: KẾT QUẢ: 24/24 PASS
+# kỳ vọng: KẾT QUẢ: 25/25 PASS
 ```
 
 ### 5.2. Kiểm thử phân biệt 3 trạng thái (Chưa biết / Có / Không) — 5 tình huống

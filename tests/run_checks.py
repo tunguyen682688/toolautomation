@@ -746,6 +746,45 @@ def main():
 
     check("24. Đổi thư mục dữ liệu: copy DB+logs+cache sang chỗ mới, cũ giữ backup", t24_change_data_dir)
 
+    # ---------------------------------------------------------------- installer.cfg đủ module
+    def t25_installer_covers_imports():
+        """installer.cfg phải chứa đủ mọi module local được import.
+
+        app cài đặt crash 'ModuleNotFoundError' khi thiếu file (vd grouped_table,
+        media_panel). Check quét import (kể cả import lười trong hàm) và đối chiếu
+        danh sách files= trong installer.cfg.
+        """
+        import re
+        import configparser
+
+        root = Path(__file__).resolve().parent.parent
+        local_mods = {p.stem for p in root.glob("*.py")}
+
+        cfg = configparser.ConfigParser(inline_comment_prefixes=(";",))
+        cfg.read(root / "installer.cfg", encoding="utf-8")
+        files_raw = cfg["Include"]["files"] or ""
+        listed = {ln.strip() for ln in files_raw.splitlines() if ln.strip()}
+
+        # main.py là entry point bắt buộc
+        assert_true("main.py" in listed, "installer.cfg thiếu main.py")
+
+        # Quét import local trong mọi file .py được ship
+        shipped = {f for f in listed if f.endswith(".py")} | {"main.py"}
+        missing = []
+        for fname in sorted(shipped):
+            src = (root / fname).read_text(encoding="utf-8", errors="replace")
+            for m in re.finditer(r"^\s*(?:from|import)\s+([a-zA-Z_][a-zA-Z0-9_]*)", src, re.M):
+                mod = m.group(1)
+                if mod in local_mods and f"{mod}.py" not in listed:
+                    missing.append(f"{fname} -> {mod}.py")
+        assert_true(not missing,
+                    f"installer.cfg thiếu module được import (app cài sẽ crash): {missing}")
+
+        print(f"    -> installer.cfg ship {len(listed)} file, "
+              f"{len(shipped)} module .py, import local OK")
+
+    check("25. installer.cfg liệt kê đủ mọi module local được import", t25_installer_covers_imports)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)

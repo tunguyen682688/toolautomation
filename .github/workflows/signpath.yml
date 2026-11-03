@@ -1,0 +1,90 @@
+name: Build & Sign with SignPath
+
+on:
+  push:
+    tags:
+      - 'v*'          # Chạy khi push tag v1.0.0, v1.1.0, etc.
+  workflow_dispatch:   # Cho phép chạy thủ công từ GitHub UI
+
+permissions:
+  contents: read
+  id-token: write      # Cần cho OIDC token để SignPath xác thực
+
+jobs:
+  build-and-sign:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      # 1. Checkout source code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Cần history cho git describe
+
+      # 2. Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+
+      # 3. Cache pip & pynsist wheels
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\pip\Cache
+            ~\AppData\Local\pynsist
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt', 'installer.cfg') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # 4. Install dependencies
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pynsist==2.8
+
+      # 5. Build installer with pynsist (không chạy makensis, chỉ prepare files)
+      - name: Build installer (prepare)
+        run: |
+          python -m nsist installer.cfg --no-makensis
+        shell: cmd
+
+      # 6. Install NSIS và build installer thực tế
+      - name: Install NSIS
+        run: |
+          winget install --id NSIS.NSIS -e --accept-source-agreements --accept-package-agreements
+        shell: cmd
+
+      # 7. Build final installer (.exe)
+      - name: Build final installer
+        run: |
+          python -m nsist installer.cfg
+        shell: cmd
+
+      # 8. Upload artifact để SignPath ký
+      - name: Upload installer for signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: KhoPhongCanHo-installer
+          path: build_installer/KhoPhongCanHo_*.exe
+          retention-days: 7
+
+      # 9. Submit to SignPath for signing
+      - name: Submit to SignPath
+        id: signpath
+        uses: signpathio/signpath-action@v1
+        with:
+          signpath-organization: ${{ secrets.SIGNPATH_ORG }}
+          signpath-project: ${{ secrets.SIGNPATH_PROJECT }}
+          signpath-policy: ${{ secrets.SIGNPATH_POLICY }}
+          artifact-path: build_installer/KhoPhongCanHo_*.exe
+          # Tự động tạo release asset sau khi ký
+          create-github-release: true
+          release-tag: ${{ github.ref_name }}
+          release-name: KhoPhongCanHo ${{ github.ref_name }}
+          release-body-path: RELEASE_NOTES.md
+          release-draft: false
+          release-prerelease: false

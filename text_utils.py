@@ -126,6 +126,20 @@ def building_display(house_number, street, ward=None, district=None) -> str:
     return f"{head}, {tail}" if tail else head
 
 
+def address_sort_key(row) -> tuple:
+    """Khối sort ĐỊA CHỈ cho danh sách phòng: TÊN ĐƯỜNG -> SỐ NHÀ -> mã -> id.
+
+    - đường: bỏ dấu + chữ thường ('xô viết nghệ tĩnh' ...)
+    - số nhà: đếm số TỰ NHIÊN ('2' < '10', '31/32/52' sort theo từng đoạn)
+      (ép string thuần sẽ ra '10' < '2' -> sai thứ tự)
+    """
+    street = norm_key(str(row.get("street") or ""))
+    hnum = re.sub(r"\d+", lambda m: m.group().zfill(9),
+                  str(row.get("house_number") or "").lower())
+    unit = norm_key(str(row.get("unit_code") or row.get("room_code") or ""))
+    return (street, hnum, unit, str(row.get("id") or ""))
+
+
 def tokens(text: str) -> List[str]:
     """Cắt từ cho chỉ mục tìm kiếm (đã bỏ dấu, bỏ ký tự đặc biệt)."""
     if not text:
@@ -435,6 +449,12 @@ def _parse_fee_hours_amenities(lines: list, n: str) -> dict:
         if len(hit) >= 2:
             fee_items.extend(hit)          # 1 dòng nhiều phí -> tách cụm cho gọn
         elif _is_fee_text(clean):
+            # tin gộp THÀNH MỘT DÒNG (không xuống dòng/dấu phẩy) -> cắt từ TỪ KHOÁ PHÍ
+            # đầu tiên: 'Đầu tháng... Giá 12tr Điện 4k Nước...' -> chỉ lấy từ 'Điện 4k'
+            if len(clean) > 100:
+                mk = _FEE_KW_RE.search(strip_accents(clean).lower())
+                if mk and mk.start() > 0:
+                    clean = clean[mk.start():]
             fee_items.append(clean)        # giữ nguyên cả dòng (vd chứa '(rác, wifi...)')
         if len(fee_items) >= 12:
             break
@@ -511,86 +531,89 @@ def _extract_address(lines) -> tuple:
     """
     best = (0, "", "", "")
     for line in lines:
-        m = re.match(r"^(.*?)[:：]?\s*(\d[\d/A-Za-z]*)\s+([A-Za-zÀ-ỹ].*)$", str(line or ""))
-        if not m:
-            continue
-        label, hnum, rest = m.group(1), m.group(2), m.group(3)
-        # '3/11' | '26/11' (≤31/≤12, không có phần thứ 3) = NGÀY -> bỏ
-        dm = _DATE_RE.search(hnum)
-        if (re.fullmatch(r"\d{1,2}/\d{1,2}", hnum) and dm
-                and int(dm.group(1)) <= 31 and int(dm.group(2)) <= 12):
-            continue
-        score = 0
-        ns_label, ns_rest = norm(label), norm(rest)
-        if _ADDR_ANCHOR_RE.search(ns_label):
-            score += 4
-        # đầu tin đăng: 'Cho thuê 319 Đường Quick Add giá...' (đủ điểm để tự điền)
-        if re.search(r"\b(?:cho thue|nha cho thue|can ho cho thue|phong tro|mat bang)\b",
-                     ns_label):
-            score += 2
-        if _WARD_RAW_RE.search(rest) or _WARD_NAME_RE.search(rest):
-            score += 2
-        if any(re.search(rf"\b{pat}\b", ns_rest) for pat, _ in _KNOWN_DISTRICTS):
-            score += 2
-        if any(t in _STREET_ABBR for t in ns_rest.split()):
-            score += 2
-        if "/" in hnum:
-            score += 1
-        if score < 2 or score <= best[0]:
-            continue
+        raw_line = str(line or "")
+        # MỌI ứng viên số nhà trong dòng (bug cũ: re.match chỉ lấy ứng viên ĐẦU TIÊN ->
+        # '...Lâu 1 Ngay 31/32/52 ung văn khiêm...' bị bỏ sót vì ứng viên đầu là '12')
+        for hm in re.finditer(r"(?<![\d/A-Za-z])(\d[\d/A-Za-z]*)(?=\s+[A-Za-zÀ-ỹ])",
+                              raw_line):
+            hnum = hm.group(1)
+            label, rest = raw_line[:hm.start()], raw_line[hm.end():]
+            # '3/11' | '26/11' (≤31/≤12, không có phần thứ 3) = NGÀY -> bỏ
+            dm = _DATE_RE.search(hnum)
+            if (re.fullmatch(r"\d{1,2}/\d{1,2}", hnum) and dm
+                    and int(dm.group(1)) <= 31 and int(dm.group(2)) <= 12):
+                continue
+            score = 0
+            ns_label, ns_rest = norm(label), norm(rest)
+            if _ADDR_ANCHOR_RE.search(ns_label):
+                score += 4
+            # đầu tin đăng: 'Cho thuê 319 Đường Quick Add giá...' (đủ điểm để tự điền)
+            if re.search(r"\b(?:cho thue|nha cho thue|can ho cho thue|phong tro|mat bang)\b",
+                         ns_label):
+                score += 2
+            if _WARD_RAW_RE.search(rest) or _WARD_NAME_RE.search(rest):
+                score += 2
+            if any(re.search(rf"\b{pat}\b", ns_rest) for pat, _ in _KNOWN_DISTRICTS):
+                score += 2
+            if any(t in _STREET_ABBR for t in ns_rest.split()):
+                score += 2
+            if "/" in hnum:
+                score += 1
+            if score < 2 or score <= best[0]:
+                continue
 
-        # ---- cắt tên đường tại ranh giới phường/quận/giá/SĐT/mã phòng
-        rest2 = re.sub(r"(?:0|\+84)[\d\s.\-]{8,13}\d", " ", rest)
-        rest2 = re.sub(r"\b\d+(?:[.,]\d+)?\s*(?:trieu|tr|nghin|k)\b", " ", rest2)
-        rest2 = re.sub(r"\b\d{6,9}\b", " ", rest2)
-        cut = len(rest2)
-        wm = _WARD_RAW_RE.search(rest2)
-        if wm:
-            cut = min(cut, wm.start())
-        # ranh giới DẤU PHẨY: chunk kế tiếp bắt đầu bằng phường/quận -> cắt tại đó
-        pos = 0
-        for i, chunk in enumerate(rest2.split(",")):
-            if i:
-                cns = norm(chunk)
-                cns_bare = re.sub(r"^(?:q|quan)\.?\s+", "", cns)     # 'q. binh thanh' -> 'binh thanh'
-                if (_WARD_RAW_RE.search(chunk) or _WARD_WORD_RE.match(chunk)
-                        or any(cns_bare.startswith(p) for p, _ in _KNOWN_DISTRICTS)):
-                    cut = min(cut, pos)
-                    break
-            pos += len(chunk) + 1
-        sm = _STOP_RAW_RE.search(rest2)
-        if sm:
-            cut = min(cut, sm.start())
-        # token: cắt tại phường/quận theo token (cũ) + mã phòng dạng 'T23'/'P402'
-        tokens = rest2.split()
-        starts, p = [], 0
-        for tok in tokens:
-            idx = rest2.find(tok, p)
-            starts.append(idx if idx >= 0 else p)
-            p = (idx if idx >= 0 else p) + len(tok)
-        _QNUM = re.compile(r"^[Qq]\.?\d{1,2}$")
-        for i, tok in enumerate(tokens):
-            one, two = norm(tok), norm(" ".join(tokens[i:i + 2]))
-            hit = (any(one == pat or two == pat or two.startswith(pat + " ")
-                       for pat, _ in _KNOWN_DISTRICTS)
-                   or one in _KNOWN_DISTRICT_ABBR or _QNUM.match(tok)
-                   or _ROOM_TOK_RE.match(tok))
-            if hit and 0 <= starts[i] < cut:
-                cut = starts[i]
+            # ---- cắt tên đường tại ranh giới phường/quận/giá/SĐT/mã phòng
+            rest2 = re.sub(r"(?:0|\+84)[\d\s.\-]{8,13}\d", " ", rest)
+            rest2 = re.sub(r"\b\d+(?:[.,]\d+)?\s*(?:trieu|tr|nghin|k)\b", " ", rest2)
+            rest2 = re.sub(r"\b\d{6,9}\b", " ", rest2)
+            cut = len(rest2)
+            wm = _WARD_RAW_RE.search(rest2)
+            if wm:
+                cut = min(cut, wm.start())
+            # ranh giới DẤU PHẨY: chunk kế tiếp bắt đầu bằng phường/quận -> cắt tại đó
+            pos = 0
+            for i, chunk in enumerate(rest2.split(",")):
+                if i:
+                    cns = norm(chunk)
+                    cns_bare = re.sub(r"^(?:q|quan)\.?\s+", "", cns)     # 'q. binh thanh' -> 'binh thanh'
+                    if (_WARD_RAW_RE.search(chunk) or _WARD_WORD_RE.match(chunk)
+                            or any(cns_bare.startswith(p) for p, _ in _KNOWN_DISTRICTS)):
+                        cut = min(cut, pos)
+                        break
+                pos += len(chunk) + 1
+            sm = _STOP_RAW_RE.search(rest2)
+            if sm:
+                cut = min(cut, sm.start())
+            # token: cắt tại phường/quận theo token (cũ) + mã phòng dạng 'T23'/'P402'
+            tokens = rest2.split()
+            starts, p = [], 0
+            for tok in tokens:
+                idx = rest2.find(tok, p)
+                starts.append(idx if idx >= 0 else p)
+                p = (idx if idx >= 0 else p) + len(tok)
+            _QNUM = re.compile(r"^[Qq]\.?\d{1,2}$")
+            for i, tok in enumerate(tokens):
+                one, two = norm(tok), norm(" ".join(tokens[i:i + 2]))
+                hit = (any(one == pat or two == pat or two.startswith(pat + " ")
+                           for pat, _ in _KNOWN_DISTRICTS)
+                       or one in _KNOWN_DISTRICT_ABBR or _QNUM.match(tok)
+                       or _ROOM_TOK_RE.match(tok))
+                if hit and 0 <= starts[i] < cut:
+                    cut = starts[i]
 
-        street = collapse_space(rest2[:cut].strip(" ,.;:-"))
-        street = re.sub(r"^(cho thue|can ho|phong|nha)\s+", "", street, flags=re.IGNORECASE)
-        words = norm(street).split()
-        if not street or not words:
-            continue
-        if words[0] in _NON_STREET_HEADS or words[0] in ("ma", "phong", "dang", "trong", "sap"):
-            continue
-        street = _STREET_ABBR.get(words[0], street) if len(words) == 1 else street
-        ward_name = ""
-        wn = _WARD_NAME_RE.search(rest)
-        if wn:
-            ward_name = collapse_space(wn.group(1)).strip(" ,.;:-")
-        best = (score, hnum, street, ward_name)
+            street = collapse_space(rest2[:cut].strip(" ,.;:-"))
+            street = re.sub(r"^(cho thue|can ho|phong|nha)\s+", "", street, flags=re.IGNORECASE)
+            words = norm(street).split()
+            if not street or not words:
+                continue
+            if words[0] in _NON_STREET_HEADS or words[0] in ("ma", "phong", "dang", "trong", "sap"):
+                continue
+            street = _STREET_ABBR.get(words[0], street) if len(words) == 1 else street
+            ward_name = ""
+            wn = _WARD_NAME_RE.search(rest)
+            if wn:
+                ward_name = collapse_space(wn.group(1)).strip(" ,.;:-")
+            best = (score, hnum, street, ward_name)
     return best
 
 

@@ -943,6 +943,41 @@ def main():
     check("28. Mẫu tin Zalo thật: địa chỉ + mã phòng + giá/cọc/phí/giờ/tiện ích + autofill",
           t28_real_zalo_samples)
 
+    # ---------------------------------------------------------------- địa chỉ giữa dòng + sort theo địa chỉ
+    def t29_address_midline_and_sort():
+        """Số nhà nằm GIỮA dòng vẫn tách được + sort danh sách phòng theo đường -> số nhà."""
+        # tin thật: '...Nguyễn tăng Lâu 1 Ngay 31/32/52 ung văn khiêm p25 Binh Thanh Giá 12tr...'
+        # (bug cũ: chỉ thử ứng viên số nhà ĐẦU TIÊN của dòng -> '12' bị loại -> mất địa chỉ)
+        tin = ("Đầu tháng 1- 12 trống 2 phòng ngủ 1 phòng khách cao cấp full Nội Thất 1 WC "
+               "Nguyễn tăng Lâu 1 Ngay 31/32/52 ung văn khiêm p25 Binh Thanh Giá 12tr "
+               "Điện 4k Nước 100k/người Phí dịch vụ 200k /phòng Free 2 xe")
+        p = tu.parse_listing_text(tin)
+        assert_true(p["house_number"] == "31/32/52"
+                    and "ung van khiem" in tu.norm(p["street"]),
+                    f"sai địa chỉ giữa dòng: {p['house_number']!r}/{p['street']!r}")
+        assert_true(p["ward"] == "P. 25" and p["district"] == "Q. Bình Thạnh",
+                    f"sai phường/quận: {p['ward']!r}/{p['district']!r}")
+        assert_true(p["price"] == 12_000_000, f"sai giá: {p['price']}")
+        # phí DV phải cắt từ 'Điện' (không lấy nguyên khối mô tả đầu tin)
+        assert_true("dien" in tu.norm(p["service_fee"])
+                    and "dau thang" not in tu.norm(p["service_fee"]),
+                    f"phí DV lẫn mô tả: {p['service_fee']!r}")
+
+        # sort địa chỉ: ĐƯỜNG trước, SỐ NHÀ đếm tự nhiên ('2' < '10', 31/32/52 theo đoạn)
+        rows = [{"id": "a", "street": "Võ Văn Tần", "house_number": "10", "unit_code": "S-2"},
+                {"id": "b", "street": "Võ Văn Tần", "house_number": "2", "unit_code": "S-1"},
+                {"id": "c", "street": "Nguyễn Xí", "house_number": "31/32/52", "unit_code": ""},
+                {"id": "d", "street": "Xô Viết Nghệ Tĩnh", "house_number": "92", "unit_code": ""}]
+        got = [(r["street"], r["house_number"]) for r in sorted(rows, key=tu.address_sort_key)]
+        assert_true(got == [("Nguyễn Xí", "31/32/52"), ("Võ Văn Tần", "2"),
+                            ("Võ Văn Tần", "10"), ("Xô Viết Nghệ Tĩnh", "92")],
+                    f"sort địa chỉ sai: {got}")
+        print(f"    -> giữa dòng: {p['house_number']} {p['street']}, {p['ward']}, "
+              f"{p['district']} | sort: {' > '.join(f'{s} {h}' for s, h in got)}")
+
+    check("29. Số nhà giữa dòng (tin 1 dòng) + sort trang Phòng theo đường -> số nhà",
+          t29_address_midline_and_sort)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)

@@ -74,7 +74,13 @@ class RoomTableModel(GroupedTableModel):
     def set_query(self, text: str, f: Optional[RoomFilter]):
         self._text = text
         self._filter = f
-        self.set_rows(self.mgr.rooms(text, f))
+        rows = self.mgr.rooms(text, f)
+        # duyệt KHÔNG có từ khoá -> sort theo ĐỊA CHỈ: đường -> số nhà (đếm tự nhiên);
+        # có từ khoá -> giữ thứ tự relevance của chỉ mục. set_rows() sẽ sort tiếp theo
+        # phường (stable) nên cuối cùng: phường -> đường -> số nhà.
+        if not (text or "").strip():
+            rows.sort(key=tu.address_sort_key)
+        self.set_rows(rows)
 
     def refresh(self):
         self.set_query(self._text, self._filter)

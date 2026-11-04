@@ -20,7 +20,7 @@ mà không bao giờ ảnh hưởng dữ liệu thật (xem mục 1.3).
 | [2. Cấu hình Google API](#2-cấu-hình-google-api-chi-tiết-có-thể-làm-sau) | 4 bước, các sheet quản lý, giới hạn quota |
 | [3. Phím tắt](#3-phím-tắt) | Bàn phím tắt |
 | [4. Dữ liệu mẫu kiểm thử](#4-dữ-liệu-mẫu-kiểm-thử) | 2 file Excel mẫu |
-| [5. Bộ kiểm thử](#5-bộ-kiểm-thử-chạy-được-ngay-không-cần-mạng) | 28 backend + 5 phân biệt 3 trạng thái + 12 giao diện + selftest + 10 tình huống bắt buộc |
+| [5. Bộ kiểm thử](#5-bộ-kiểm-thử-chạy-được-ngay-không-cần-mạng) | 29 backend + 5 phân biệt 3 trạng thái + 12 giao diện + selftest + 10 tình huống bắt buộc |
 | [6. Nguyên tắc quan trọng](#6-nguyên-tắc-quan-trọng-của-phần-mềm) | Offline-first, chống trùng, đồng bộ an toàn |
 | [7. Xử lý sự cố](#7-xử-lý-sự-cố-thường-gặp) | Bảng lỗi thường gặp |
 | [8. Build bản Windows (.exe)](#8-build-bản-windows-exe-cho-người-dùng-cuối) | Đóng gói, chạy trên máy khác, selftest |
@@ -132,7 +132,7 @@ toolautomation/
 ├── start.bat             ← tạo venv + cài thư viện + chạy (hỗ trợ --env)
 ├── build.bat             ← build bản Windows (.exe) + selftest
 ├── KhoPhongCanHo.spec    ← cấu hình PyInstaller
-└── tests/                ← bộ kiểm thử (28 + 5 + 12 tình huống)
+└── tests/                ← bộ kiểm thử (29 + 5 + 12 tình huống)
 ```
 
 ---
@@ -220,12 +220,12 @@ Lần chạy đầu nếu DB trống, chương trình sẽ **đề nghị nhập
 
 ## 5. Bộ kiểm thử (chạy được ngay, không cần mạng)
 
-### 5.1. Kiểm thử backend — 28 tình huống
+### 5.1. Kiểm thử backend — 29 tình huống
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'     # console Windows cp1252 -> tránh lỗi hiển thị UTF-8
 python tests\run_checks.py
-# kỳ vọng: KẾT QUẢ: 28/28 PASS
+# kỳ vọng: KẾT QUẢ: 29/29 PASS
 ```
 
 ### 5.2. Kiểm thử phân biệt 3 trạng thái (Chưa biết / Có / Không) — 5 tình huống
@@ -396,6 +396,7 @@ chi tiết ghi vào `data\<env>\selftest_result.txt`.
 
 | Ngày | Thay đổi |
 |---|---|
+| 2026-11-05 | **🏠 TÁCH ĐỊA CHỈ KHI SỐ NHÀ NẰM GIỮA DÒNG + SORT TRANG PHÒNG THEO ĐƯỜNG → SỐ NHÀ.** ① **Bug tách địa chỉ**: `re.match` chỉ thử ứng viên số nhà ĐẦU TIÊN của dòng → tin "…Nguyễn tăng Lâu 1 Ngay **31/32/52 ung văn khiêm** p25 Binh Thanh Giá 12tr…" bị bỏ SỐ NHÀ + ĐƯỜNG (ứng viên đầu "12" bị loại vì đầu street là "trống"). Viết lại `_extract_address` quét **MỌI ứng viên** số nhà trong dòng (`finditer` + lookbehind `(?<![\d/A-Za-z])` + lookahead chữ cái), chấm điểm từng ứng viên, lấy điểm cao nhất → tách đúng `31/32/52` / `Ung Văn Khiêm` / P.25 / Q. Bình Thạnh. ② **Phí DV tin gộp 1 dòng**: dòng >100 ký tự có từ khoá phí → cắt từ TỪ KHOÁ PHÍ đầu tiên ("Đầu tháng… Giá 12tr **Điện 4k** Nước…" → chỉ lấy từ "Điện 4k…", không lẫn mô tả). ③ **Sort trang Phòng**: duyệt KHÔNG có từ khoá → sort theo địa chỉ **đường → số nhà đếm TỰ NHIÊN** (`2` < `10`, `31/32/52` theo từng đoạn — helper mới `text_utils.address_sort_key()`), nhóm theo phường giữ nguyên (stable sort → phường → đường → số nhà); có từ khoá tìm kiếm → giữ thứ tự relevance. Test: backend **29/29** (t29 mới), UI **12/12** (làm chắc test form trùng: retry khi vấp lock SQLite), tri-state **5/5**, selftest **OK**. |
 | 2026-11-04 | **🤖 PARSER TIN NHẮN ZALO VIẾT LẠI THEO TỪNG DÒNG — test trên 11 mẫu tin THẬT.** Lỗi gốc cũ: `collapse_space()` gộp hết xuống dòng thành 1 khối → địa chỉ/chi phí lẫn rác (vd lấy cả "CẬP NHẬT PHÒNG TRỐNG 3/11 M8/11…" làm tên đường). Viết lại `text_utils.py`: **① Địa chỉ chấm điểm theo dòng** (anchor "địa chỉ/dự án" +4, phường +2, quận +2, viết tắt đường +2, số nhà có `/` +1; <2 điểm bỏ) — dòng ngày tháng (`3/11`, `M8/11 TRỐNG`) không còn bị nhận nhầm; cắt tên đường theo chunk dấu phẩy + token mã phòng (`T23`) + mở rộng viết tắt (`XVNT → Xô Viết Nghệ Tĩnh`); "Thanh Mỹ Tây" → Q. Bình Thạnh. **② Mã phòng**: `Mã phòng: 403` / `Phòng 302` / `P402(...)` / `Sắp trống: 402` / `Mã T202`; **tin NHIỀU PHÒNG** `Mã 501_502: 6.400.000` → list `_rooms` (mẫu thật 6 phòng đúng giá từng cặp) — Tạo nhanh điền **mã đầu** + dòng gợi ý "tin có 6 phòng: … (bấm Sửa phòng để tách)", **không tự tạo 6 phòng**. **③ Tiền**: `4tr5` (=4,5tr), `5.200 K` (=5,2tr), `8.700.000`, "giảm còn X" = giá hiện tại, bỏ "cọc 3tr" khỏi giá; **cọc** = tiền thật hoặc `cọc 1th/1.5 tháng` × giá; SĐT validate (chặn `00000103` làm mất giá). **④ Phí DV / giờ giấc / tiện ích theo TỪNG DÒNG**: dòng (hoặc cụm `,;.`) có từ khoá phí + số tiền → nối ` · `; giờ ưu tiên "giờ giấc/ra vào tự do" rồi mới "24/7" (tránh "Camera 24/24"); tiện ích dedupe ("Khóa vân tay" không liệt kê "Vân tay" 2 lần). `room_code` autofill vào Tạo nhanh + form Sửa (chỉ khi ô trống). Test: backend **28/28** (t28: 4 mẫu Zalo thật m2/m4/m5/m10 + autofill), UI **12/12**, tri-state **5/5**, selftest **OK**. |
 | 2026-11-04 | **🏠 MÃ PHÒNG CHỈ UNIQUE THEO TÒA + 3 TRƯỜNG MỚI (phí dịch vụ / giờ giấc / tiện ích) + NHẬP GIÁ NHANH.** ① **Bỏ cảnh báo "trùng mã phòng ở tòa khác"** (L4 trong `duplicate_checker.py`): 2 tòa khác nhau cùng có mã A1 là hoàn toàn hợp lệ — chỉ chặn trùng trong cùng tòa (`UNIQUE(building_id, unit_key)` giữ nguyên); test 5b đổi theo hành vi mới. ② **3 trường mới cho phòng**: `service_fee` (Chi phí dịch vụ: điện/nước/wifi/giữ xe...), `access_hours` (Giờ ra vào/giới nghiêm), `amenities` (Tiện ích tòa nhà: thang máy/camera/điều hòa...) — thêm cột DB (tự `ALTER TABLE` cho DB cũ), nhóm **"9. Chi phí dịch vụ, giờ giấc & tiện ích tòa nhà"** trong form Sửa, cột Excel mới **thêm CUỐI bảng** (công thức COUNTIF gốc giữ nguyên), import Excel nhận qua alias; **tách tự động từ tin Zalo** (`_parse_fee_hours_amenities`: đoạn có từ khoá + số tiền → phí DV; "giờ ra vào/24/7/6h-23h" → giờ; gom từ khoá tiện ích toàn tin) — autofill vào form Sửa + Tạo nhanh (gộp cùng cọc vốn bị bỏ), `search_norm` chứa cả 3 trường → gõ "thang máy" tìm ra phòng; "Lưu & thêm tiếp" giữ nguyên 3 trường (nhập nhiều phòng cùng tòa). ③ **Nhập giá nhanh**: ô Giá thuê/Tiền cọc trong form Sửa có ô chữ xanh hiện **trực tiếp khi gõ** `= 5.000.000 · 5 triệu` (chấp nhận `7.5tr`, `5 triệu`, `5trieu`, `7,5tr`... — helper mới `text_utils.money_words()`); không nhận diện được thì hiện ⚠ cam. Test: backend **27/27** (t26, t27 mới), UI **12/12**, tri-state **5/5**, selftest **14/14**. |
 | 2026-11-03 | **📂 ĐỔI THƯ MỤC LƯU TRỮ (DB + logs + backup + cache) — tab Cài đặt → Chung.** Ô \"Thư mục dữ liệu\" có nút **Chọn...** chọn thư mục mới; bấm Lưu sẽ **copy toàn bộ DB (kèm WAL/SHM), logs/, backup/, cache/ sang chỗ mới**, thư mục cũ **giữ nguyên làm backup**. App chạy ngay ở chỗ mới (không cần khởi động lại) nhờ `Database.reconnect()`; `LOG_DIR`, `CACHE_DIR` tự tính theo `db_path` setting lúc runtime (`config.get_log_dir()`, `config.get_cache_dir()`). Test t24: backend **24/24**, UI **12/12**, selftest **14/14**. |

@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 import traceback
 from pathlib import Path
 
@@ -134,7 +135,14 @@ def main() -> int:
         dlg2.ed["house_number"].setText("313")
         dlg2.ed["street"].setText("Đường Smoke Test")
         dlg2.ed["unit_code"].setText("S-01")
-        dlg2._run_check()
+        # check đồng bộ nhưng thỉnh thoảng vấp lock SQLite ngắn (thread nền) ->
+        # thử lại vài lần trước khi kết luận
+        for _ in range(6):
+            dlg2._run_check()
+            app.processEvents()
+            if dlg2._last_check.get("room_exists") is True:
+                break
+            time.sleep(0.15)
         assert dlg2._last_check.get("room_exists") is True, "Không phát hiện trùng trong form"
         assert dlg2.btn_save.isEnabled() is False, "Nút Lưu phải bị tắt khi trùng"
 

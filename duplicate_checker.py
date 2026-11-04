@@ -5,7 +5,8 @@ Các lớp kiểm tra khi THÊM phòng mới:
   L1. Địa chỉ đã tồn tại chưa?           -> building_exists (info / tự liên kết)
   L2. Tòa nhà có trong danh mục chưa?     -> building_exists
   L3. Căn hộ (tòa nhà + số căn) tồn tại? -> room_exists (BLOCK)
-  L4. Mã phòng bị trùng?                 -> code_duplicate (WARN)
+  L4. (ĐÃ BỎ) Trùng mã phòng ở tòa khác -> mã phòng chỉ cần unique TRONG CÙNG TÒA;
+      2 tòa khác nhau cùng có mã A1 là hợp lệ -> không còn cảnh báo code_duplicate.
   L5. Bản ghi tương tự về địa chỉ + căn? -> similar (WARN - "nghi ngờ trùng do khác cách viết")
 
 Kết quả luôn kèm: thông tin phòng hiện có, trạng thái hiện tại, thời gian cập nhật gần nhất
@@ -28,7 +29,7 @@ SIMILAR_THRESHOLD = 0.86
 
 @dataclass
 class Finding:
-    kind: str                 # building_new|building_exists|room_exists|code_duplicate|similar|invalid
+    kind: str                 # building_new|building_exists|room_exists|similar|invalid
     severity: str             # info|warn|block
     message: str
     room_id: Optional[str] = None
@@ -183,20 +184,9 @@ class DuplicateChecker:
                              f"cập nhật: {existing.get('updated_at')}"),
                     room_id=existing["id"], building_id=building["id"], room=existing,
                 ))
-            # L4 - trùng mã phòng (ở tòa khác)
-            code_key = tu.room_code_key(payload.get("room_code"))
-            if tu.valid_room_code(payload.get("room_code")):
-                for other in self.db.find_room_by_code(code_key):
-                    if other["id"] == (exclude_id or ""):
-                        continue
-                    if building and other.get("building_id") == building["id"] and ident:
-                        continue  # đã bắt ở L3
-                    res.findings.append(Finding(
-                        kind="code_duplicate", severity="warn",
-                        message=(f"MÃ PHÒNG BỊ TRÙNG: '{payload.get('room_code')}' đã dùng ở "
-                                 f"{other.get('address')} (trạng thái: {RoomStatusLabel(other.get('status'))})."),
-                        room_id=other["id"], building_id=other.get("building_id"), room=other,
-                    ))
+            # KHÔNG kiểm tra L4 "trùng mã phòng ở tòa khác": mã phòng chỉ cần
+            # unique TRONG CÙNG TÒA (khóa building_id + unit_key ở L3).
+            # 2 tòa khác nhau cùng có mã A1 là hoàn toàn hợp lệ.
         # L3b - THIẾU số căn + mã phòng không hợp lệ: không có khoá duy nhất ->
         # chặn theo "cùng tòa + trùng văn bản mã phòng" (tránh nhập trùng vô hạn)
         if building and not ident:
@@ -325,10 +315,6 @@ class DuplicateChecker:
                     "reason": "Đã tồn tại, có thay đổi: " + ", ".join(diff[:6]),
                     "existing": existing}
 
-        if any(f.kind == "code_duplicate" for f in check.findings):
-            return {"kind": "suspect",
-                    "reason": "Mã phòng đã được dùng ở bản ghi khác - cần xác nhận",
-                    "existing": None}
         if any(f.kind == "similar" for f in check.findings):
             return {"kind": "suspect",
                     "reason": "Nghi ngờ trùng do khác cách viết địa chỉ/số căn - cần xác nhận",
@@ -344,6 +330,7 @@ class DuplicateChecker:
         "notes": "notes", "pet_policy": "pet_policy",
         "ev_support": "ev_support", "surveyed": "surveyed", "foreign_guest": "foreign_guest",
         "area": "area",
+        "service_fee": "service_fee", "access_hours": "access_hours", "amenities": "amenities",
     }
 
     @classmethod

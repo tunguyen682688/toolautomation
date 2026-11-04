@@ -170,6 +170,29 @@ def format_money(value) -> str:
         return "0"
 
 
+def money_words(value) -> str:
+    """Đọc số tiền bằng chữ để khỏi phải đếm số 0.
+
+    5000000 -> "5 triệu" | 7500000 -> "7,5 triệu" | 850000 -> "850 nghìn"
+    0 / None / không hợp lệ -> "" (chưa biết -> không hiển thị gì)
+    """
+    try:
+        v = int(value or 0)
+    except (TypeError, ValueError):
+        return ""
+    if v <= 0:
+        return ""
+    if v >= 1_000_000:
+        n = v / 1_000_000
+        s = f"{n:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+        return f"{s} triệu"
+    if v >= 1_000:
+        n = v / 1_000
+        s = f"{n:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+        return f"{s} nghìn"
+    return f"{v} đồng"
+
+
 def parse_yes_no(value) -> Optional[bool]:
     """"Có sạc"/"Không"/"Có"/None -> True/False/None."""
     if value is None:
@@ -320,15 +343,93 @@ def _money_near(n: str, anchors: tuple, after_len: int = 40) -> int:
     return 0
 
 
+def _window(text: str, pos: int, before: int = 30, after: int = 150) -> str:
+    """Cắt cửa sổ quanh vị trí ``pos`` trên ``text`` - không cắt giữa từ, tối đa ~200 ký tự."""
+    if not text:
+        return ""
+    pos = max(0, min(int(pos or 0), len(text) - 1))
+    start = max(0, pos - before)
+    if start > 0:
+        sp = text.find(" ", start)
+        if sp != -1:
+            start = sp + 1
+    end = min(len(text), pos + after)
+    sp = text.find(" ", end)
+    if sp != -1:
+        end = sp
+    return collapse_space(text[start:end])[:200]
+
+
+def _parse_fee_hours_amenities(raw: str, n: str) -> dict:
+    """Tách chi phí dịch vụ / giờ giấc / tiện ích tòa nhà từ tin đăng.
+
+    - service_fee:  đoạn có từ khoá (điện, nước, wifi, giữ xe, phí...) + có số tiền
+    - access_hours: đoạn có "giờ ra vào / giới nghiêm / mở cửa / 24/7" hoặc dải giờ 6h-23h
+    - amenities:    quét cả tin, gom các từ khoá tiện ích tìm thấy (giữ nguyên tiếng Việt)
+    """
+    out = {"service_fee": "", "access_hours": "", "amenities": ""}
+    segs = [collapse_space(s) for s in re.split(r"[\n;|•●]+", str(raw or "")) if s and s.strip()]
+
+    fee_pairs = (("điện", "dien"), ("nước", "nuoc"), ("wifi", "wifi"), ("internet", "internet"),
+                 ("phí dịch vụ", "phi dich vu"), ("phí dv", "phi dv"),
+                 ("phí quản lý", "phi quan ly"), ("giữ xe", "giu xe"), ("gửi xe", "gui xe"),
+                 ("chăm sóc", "cham soc"), ("giặt đồ", "giat do"), ("phí dịch", "phi dich"))
+
+    # ---- chi phí dịch vụ: đoạn CÓ từ khoá TIỀN + CÓ số tiền
+    for seg in segs:
+        low, ns = seg.lower(), norm(seg)
+        hit = next((kw for kw, kn in fee_pairs if kw in low or kn in ns), None)
+        if not hit:
+            continue
+        if not (_MONEY_UNIT_RE.search(ns) or re.search(r"\b\d{1,3}[.,]\d{3}(?:\.\d{3})*\b", ns)
+                or re.search(r"\b\d{4,}\b", ns)):
+            continue   # có từ khoá nhưng không có số tiền -> chưa phải dòng chi phí
+        out["service_fee"] = _window(seg, low.find(hit) if hit in low else 0)
+        break
+
+    # ---- giờ giấc: "giờ ra vào / giới nghiêm / mở cửa / 24/7" hoặc dải giờ 6h-23h
+    hour_accents = ("giờ ra vào", "giới nghiêm", "giờ mở cửa", "giờ giấc",
+                    "giờ canh", "ra vào tự do", "24/7")
+    hour_norms = tuple(norm(h) for h in hour_accents)
+    hour_range = re.compile(r"\b\d{1,2}\s*h(?:\s*[:.]?\s*\d{2})?\s*(?:-|–|—|đến|tới)\s*\d{1,2}\s*h",
+                            re.IGNORECASE)
+    for seg in segs:
+        low, ns = seg.lower(), norm(seg)
+        m = next(((kw, low.find(kw)) for kw in hour_accents if kw in low), None)
+        if m:
+            out["access_hours"] = _window(seg, m[1])
+            break
+        m = next(((kw, ns.find(kw)) for kw in hour_norms if kw in ns), None)
+        if m:
+            out["access_hours"] = _window(ns, m[1])
+            break
+        mr = hour_range.search(ns)
+        if mr:
+            out["access_hours"] = _window(ns, mr.start())
+            break
+
+    # ---- tiện ích tòa nhà: gom từ khoá trên toàn tin (n = text đã norm)
+    amen = (("thang may", "Thang máy"), ("camera", "Camera"), ("dieu hoa", "Điều hòa"),
+            ("be boi", "Hồ bơi"), ("giat do", "Giặt đồ"), ("truyen hinh", "Truyền hình"),
+            ("wifi", "Wifi"), ("internet", "Internet"), ("giu xe", "Giữ xe"),
+            ("bao ve", "Bảo vệ"), ("an ninh", "An ninh"), ("san vuon", "Sân vườn"),
+            ("ham do xe", "Hầm để xe"), ("sieu thi", "Siêu thị"), ("choi game", "Chơi game"))
+    out["amenities"] = ", ".join(disp for kw, disp in amen if kw in n)
+    return out
+
+
 def parse_listing_text(text: str) -> dict:
     """Phân tích tin đăng thuê nhà dạng text tự do -> dict các trường của form.
 
     Trả về dict có các khóa (None nếu không tách được -> "Chưa biết"):
     house_number, street, ward, district, price, deposit, room_type, area,
-    floor, capacity, ev_support, pet_policy, owner_phone, notes
+    floor, capacity, ev_support, pet_policy, owner_phone, notes,
+    service_fee (chi phí dịch vụ), access_hours (giờ giấc),
+    amenities (tiện ích tòa nhà)
     """
     out = {k: "" for k in ("house_number", "street", "ward", "district", "room_type",
-                           "area", "floor", "capacity", "pet_policy", "owner_phone", "notes")}
+                           "area", "floor", "capacity", "pet_policy", "owner_phone", "notes",
+                           "service_fee", "access_hours", "amenities")}
     # không tách được -> None (Chưa biết), KHÔNG được gán 0 (sẽ thành "Không")
     out.update({"price": None, "deposit": None, "ev_support": None})
     if not text or not str(text).strip():
@@ -480,6 +581,9 @@ def parse_listing_text(text: str) -> dict:
             if re.search(rf"\b{pat}\b", np_):
                 out["district"] = name
                 break
+
+    # ---- chi phí dịch vụ / giờ giấc / tiện ích tòa nhà
+    out.update(_parse_fee_hours_amenities(raw, n))
 
     # ---- ghi chú: phần text còn lại (nguyên văn, không phân tích được)
     out["notes"] = collapse_space(strip_emoji(str(text)))[:500]

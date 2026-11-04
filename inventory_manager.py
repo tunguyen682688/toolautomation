@@ -31,6 +31,7 @@ ROOM_INSERT_FIELDS = [
     "id", "building_id", "room_code", "room_code_key", "unit_code", "unit_key", "floor",
     "room_type", "status", "surveyed", "price", "deposit", "capacity", "ev_support",
     "pet_ok", "pet_policy", "rating", "owner_phone", "zalo_group", "drive_link", "notes",
+    "service_fee", "access_hours", "amenities",
     "foreign_guest", "area", "needs_verify", "search_norm", "external_ref", "sync_state", "version", "deleted",
     "created_at", "updated_at", "updated_by",
 ]
@@ -378,6 +379,9 @@ class InventoryManager:
             "zalo_group": str(payload.get("zalo_group") or building.get("zalo_group") or "").strip(),
             "drive_link": str(payload.get("drive_link") or "").strip(),
             "notes": str(payload.get("notes") or "").strip(),
+            "service_fee": str(payload.get("service_fee") or "").strip(),
+            "access_hours": str(payload.get("access_hours") or "").strip(),
+            "amenities": str(payload.get("amenities") or "").strip(),
             "foreign_guest": tri_state(payload.get("foreign_guest")),
             "area": opt_text(payload.get("area")),
             "external_ref": str(payload.get("external_ref") or "").strip(),

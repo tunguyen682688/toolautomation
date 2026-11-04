@@ -316,6 +316,9 @@ class Room:
     zalo_group: str = ""
     drive_link: str = ""
     notes: str = ""
+    service_fee: str = ""     # chi phí dịch vụ: điện, nước, wifi, giữ xe...
+    access_hours: str = ""    # giờ giấc: giờ ra vào, giới nghiêm...
+    amenities: str = ""       # tiện ích / thông tin của tòa nhà
     foreign_guest: int = 0   # 1 = phòng nhận khách nước ngoài
     needs_verify: int = 0
     search_norm: str = ""
@@ -370,6 +373,9 @@ ROOM_COLUMNS: List[Dict] = [
     {"name": "zalo_group",  "header": "Group Zalo Tòa Nhà",         "aliases": ["group zalo", "zalo", "zalo toa nha"], "type": "text", "editable": True},
     {"name": "drive_link",  "header": "Link Drive Kho Media",       "aliases": ["link drive", "drive", "link google drive", "media"], "type": "text", "editable": True},
     {"name": "notes",       "header": "Chính Sách & Ghi Chú Chi Tiết", "aliases": ["chinh sach", "ghi chu", "notes", "chinh sach ghi chu", "ghi chu chi tiet"], "type": "text", "editable": True},
+    {"name": "service_fee", "header": "Chi Phí Dịch Vụ",           "aliases": ["chi phi dich vu", "phi dich vu", "phi dv", "chi phi", "dien nuoc wifi", "dien nuoc"], "type": "text", "editable": True},
+    {"name": "access_hours","header": "Giờ Ra Vào / Giờ Giác",     "aliases": ["gio ra vao", "gio giac", "gioi nghiem", "gio mo cua", "gio", "access hours"], "type": "text", "editable": True},
+    {"name": "amenities",   "header": "Tiện Ích Tòa Nhà",           "aliases": ["tien ich toa nha", "tien ich", "tien nghi", "amenities", "tien ich chung"], "type": "text", "editable": True},
     {"name": "foreign_guest","header": "Nhận Khách Nước Ngoài",        "aliases": ["nuoc ngoai", "khach nuoc ngoai", "foreign", "foreign guest", "nhan nuoc ngoai"], "type": "bool", "editable": True},
     {"name": "unit_code",   "header": "Số Căn",                     "aliases": ["so can", "socc", "so can ho", "unit", "ma can"], "type": "text", "editable": True},
     {"name": "floor",       "header": "Tầng",                       "aliases": ["tang", "floor", "lau"], "type": "text", "editable": True},

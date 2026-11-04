@@ -137,16 +137,23 @@ def main():
         raise AssertionError("Thêm trùng thành công -> CHỐNG TRÙNG THẤT BẠI")
 
     def t05_same_code_other_address():
+        """Mã phòng chỉ unique THEO TÒA -> trùng mã ở tòa khác là HỢP LỆ, không cảnh báo."""
         p = dict(NEW_A)
         p.update({"house_number": "888", "street": "Nguyễn Văn B", "unit_code": "B-02"})
         try:
-            mgr.add_room(p, actor="tester", force=False)
+            r = mgr.add_room(p, actor="tester", force=False)
         except DuplicateError as e:
-            assert_true(any(f.kind == "code_duplicate" for f in e.result.findings),
-                        "Không báo trùng mã phòng")
-            print("    -> cảnh báo trùng mã phòng ở tòa khác")
-            return
-        raise AssertionError("Không phát hiện trùng mã phòng")
+            # chỉ được phép do L5 "similar" (nghi trùng địa chỉ) - TUYỆT ĐỐI không phải mã phòng
+            assert_true(not any(f.kind == "code_duplicate" for f in e.result.findings),
+                        "Vẫn chặn vì trùng mã phòng ở tòa khác")
+            r = mgr.add_room(p, actor="tester", force=True)
+        assert_true(bool(r and r.get("id")), "Không thêm được phòng cùng mã ở tòa khác")
+        # check lại: không còn sinh finding code_duplicate
+        res = mgr.check_new(dict(p), exclude_id=r["id"])
+        assert_true(not any(f.kind == "code_duplicate" for f in res.findings),
+                    "Vẫn sinh cảnh báo code_duplicate")
+        assert_true(not res.has_block, "Tòa khác cùng mã phòng lại bị BLOCK")
+        print(f"    -> cùng mã '{p['room_code']}' ở 2 tòa = hợp lệ, không cảnh báo")
 
     def t06_new_room_into_existing_building():
         """4. Thêm phòng mới vào tòa đã tồn tại -> tự liên kết đúng tòa (không tạo tòa mới)."""
@@ -168,7 +175,7 @@ def main():
     check("2. Thêm một phòng mới (thủ công) thành công", t03_add_new_room)
     check("2b. Thêm đúng phòng đó lần nữa -> phát hiện trùng (block)", t04_add_same_room_again)
     check("4. Thêm phòng mới vào tòa đã tồn tại -> tự liên kết đúng tòa", t06_new_room_into_existing_building)
-    check("5b. Trùng mã phòng ở tòa khác -> có cảnh báo", t05_same_code_other_address)
+    check("5b. Trùng mã phòng ở tòa khác -> HỢP LỆ, không cảnh báo", t05_same_code_other_address)
 
     def t07_concurrent_add_only_one_valid():
         """5. Hai 'người' cùng thêm 1 căn hộ cùng lúc -> chỉ 1 bản ghi hợp lệ."""
@@ -784,6 +791,73 @@ def main():
               f"{len(shipped)} module .py, import local OK")
 
     check("25. installer.cfg liệt kê đủ mọi module local được import", t25_installer_covers_imports)
+
+    # ---------------------------------------------------------------- 3 trường mới: phí DV / giờ / tiện ích
+    def t26_fee_hours_amenities():
+        """Chi phí dịch vụ + giờ giấc + tiện ích tòa nhà: tách từ tin Zalo + lưu DB + tìm được."""
+        tin = ("Phòng studio 45m2 giá 7tr, cọc 1 tháng. "
+               "Điện 3.500đ/kWh, nước 25.000đ/m3, wifi 100k/tháng. "
+               "Ra vào tự do 24/7, có bảo vệ camera giữ xe. "
+               "Tòa có thang máy, điều hòa, giặt đồ.")
+        p = tu.parse_listing_text(tin)
+        assert_true(bool(p["service_fee"]) and "wifi" in tu.norm(p["service_fee"]),
+                    f"Không tách được chi phí dịch vụ: {p['service_fee']!r}")
+        assert_true(bool(p["access_hours"]) and "24/7" in p["access_hours"],
+                    f"Không tách được giờ giấc: {p['access_hours']!r}")
+        assert_true("Thang máy" in p["amenities"] and "Camera" in p["amenities"],
+                    f"Không tách được tiện ích: {p['amenities']!r}")
+
+        # lưu DB + đọc lại (round-trip)
+        payload = {"house_number": "77", "street": "Đường Test T26", "ward": "P.2",
+                   "district": "Q.3", "unit_code": "T26-01", "room_type": "Studio",
+                   "price": 7000000, "service_fee": p["service_fee"],
+                   "access_hours": p["access_hours"], "amenities": p["amenities"]}
+        r = mgr.add_room(payload, actor="tester")
+        got = db.get_room(r["id"])
+        assert_true(got["service_fee"] == p["service_fee"], "Mất chi phí dịch vụ khi lưu DB")
+        assert_true(got["access_hours"] == p["access_hours"], "Mất giờ giấc khi lưu DB")
+        assert_true(got["amenities"] == p["amenities"], "Mất tiện ích khi lưu DB")
+
+        # search_norm chứa tiện ích -> gõ "thang may" tìm ra phòng
+        assert_true("thang may" in (got["search_norm"] or ""),
+                    "search_norm thiếu tiện ích tòa nhà")
+        found = [x for x in mgr.rooms("thang may") if x["id"] == r["id"]]
+        assert_true(found, "Tìm 'thang may' không ra phòng vừa thêm")
+
+        # tin KHÔNG có thông tin -> '' (không sinh None lung tung)
+        p2 = tu.parse_listing_text("Cho thuê nhà 12 Trần Nguyên Hãn giá 5tr")
+        assert_true(p2["service_fee"] == "" and p2["access_hours"] == ""
+                    and p2["amenities"] == "",
+                    f"Tin không có thông tin phải trả '': {p2}")
+        print(f"    -> phí DV='{got['service_fee'][:45]}...' | giờ='{got['access_hours'][:25]}' "
+              f"| tiện ích={got['amenities']}")
+
+    check("26. Phí dịch vụ + giờ giấc + tiện ích tòa: tách tin Zalo + DB + tìm kiếm",
+          t26_fee_hours_amenities)
+
+    # ---------------------------------------------------------------- nhập giá nhanh
+    def t27_quick_money_input():
+        """Nhập giá nhanh: '5tr'/'5 triệu'/'5trieu' + đọc tiền bằng chữ (không đếm số 0)."""
+        for txt_, want in (("5tr", 5_000_000), ("5 triệu", 5_000_000),
+                           ("5trieu", 5_000_000), ("7.500.000", 7_500_000),
+                           ("7,5tr", 7_500_000), ("500 nghìn", 500_000)):
+            assert_true(tu.normalize_price(txt_) == want,
+                        f"normalize_price('{txt_}') = {tu.normalize_price(txt_)}, kỳ vọng {want}")
+        # đọc bằng chữ (ô preview trong form Sửa)
+        assert_true(tu.money_words(5_000_000) == "5 triệu",
+                    f"money_words(5tr) sai: {tu.money_words(5_000_000)!r}")
+        assert_true(tu.money_words(7_500_000) == "7,5 triệu",
+                    f"money_words(7.5tr) sai: {tu.money_words(7_500_000)!r}")
+        assert_true(tu.money_words(850_000) == "850 nghìn",
+                    f"money_words(850k) sai: {tu.money_words(850_000)!r}")
+        assert_true(tu.money_words(None) == "" and tu.money_words(0) == "",
+                    "money_words(0/None) phải rỗng (Chưa biết -> không hiển thị)")
+        assert_true(tu.format_money(5_000_000) == "5.000.000",
+                    f"format_money sai: {tu.format_money(5_000_000)}")
+        print(f"    -> '7,5tr'={tu.normalize_price('7,5tr')} · "
+              f"đọc chữ: {tu.money_words(7_500_000)} / {tu.money_words(5_000_000)}")
+
+    check("27. Nhập giá nhanh: 5tr/5 triệu/5trieu + hiển thị đọc bằng chữ", t27_quick_money_input)
 
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)

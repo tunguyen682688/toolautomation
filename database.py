@@ -53,6 +53,9 @@ _ROOMS_DDL = """CREATE TABLE IF NOT EXISTS rooms (
     zalo_group    TEXT NOT NULL DEFAULT '',
     drive_link    TEXT NOT NULL DEFAULT '',
     notes         TEXT NOT NULL DEFAULT '',
+    service_fee   TEXT NOT NULL DEFAULT '',  -- Chi phí dịch vụ (điện, nước, wifi, giữ xe...)
+    access_hours  TEXT NOT NULL DEFAULT '',  -- Giờ giấc (ra vào, giới nghiêm...)
+    amenities     TEXT NOT NULL DEFAULT '',  -- Tiện ích / thông tin của tòa nhà
     foreign_guest INTEGER,           -- 1 = Nhận khách NNGO, 0 = Không, NULL = Chưa biết
     needs_verify  INTEGER NOT NULL DEFAULT 0,
     search_norm   TEXT NOT NULL DEFAULT '',
@@ -303,6 +306,10 @@ class Database:
                 if "area" not in cols:
                     self._conn.execute(
                         "ALTER TABLE rooms ADD COLUMN area TEXT NOT NULL DEFAULT ''")
+                for cname in ("service_fee", "access_hours", "amenities"):
+                    if cname not in cols:
+                        self._conn.execute(
+                            f"ALTER TABLE rooms ADD COLUMN {cname} TEXT NOT NULL DEFAULT ''")
             except sqlite3.OperationalError:
                 pass
             # --- migration 3 trạng thái: DB cũ cột NOT NULL -> NULL được lưu (Chưa biết) ---
@@ -888,7 +895,8 @@ def build_room_search_norm(room: Dict[str, Any], building: Optional[Dict[str, An
         room.get("room_code", ""), room.get("unit_code", ""), room.get("floor", ""),
         room.get("room_type", ""), room.get("status", ""), room.get("owner_phone", ""),
         room.get("capacity", ""), room.get("pet_policy", ""), room.get("rating", ""),
-        room.get("notes", ""),
+        room.get("notes", ""), room.get("service_fee", ""),
+        room.get("access_hours", ""), room.get("amenities", ""),
         # price/deposit = NULL (Chưa biết) -> KHÔNG được biến thành chữ "None"
         ("" if room.get("price") is None else str(room.get("price"))),
         ("" if room.get("deposit") is None else str(room.get("deposit"))),

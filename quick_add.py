@@ -72,7 +72,8 @@ def autofill_from_text(text: str) -> Dict[str, Any]:
     # KHÔNG nhận `notes`: parse_listing_text gán notes = nguyên văn text ->
     # điền vào ô Ghi chú sẽ bị thừa/đụng dữ liệu người dùng đã gõ.
     for k in ("house_number", "street", "ward", "district", "room_type",
-              "area", "floor", "capacity", "owner_phone"):
+              "area", "floor", "capacity", "owner_phone",
+              "service_fee", "access_hours", "amenities"):
         v = str(p.get(k) or "").strip()
         if v:
             out[k] = v
@@ -118,6 +119,7 @@ class QuickAddDialog(QDialog):
         self.ed: Dict[str, Any] = {}
         self.img_paths: List[str] = []
         self._autofilled = False
+        self._extra_fields: Dict[str, Any] = {}   # trường parse được nhưng form không có ô (cọc, phí DV...)
         self._dup_id = ""
         self.saved_room_id = ""
         self.saved_images = 0
@@ -367,11 +369,16 @@ class QuickAddDialog(QDialog):
                   "district": "quận", "room_type": "dạng phòng", "price": "giá",
                   "area": "diện tích", "floor": "tầng", "capacity": "sức chứa",
                   "owner_phone": "SĐT chủ", "notes": "ghi chú",
-                  "deposit": "cọc", "pet_policy": "thú cưng"}
+                  "deposit": "cọc", "pet_policy": "thú cưng",
+                  "service_fee": "phí dịch vụ", "access_hours": "giờ giấc",
+                  "amenities": "tiện ích"}
         filled = []
         for k, v in fields.items():
             w = self.ed.get(k)
             if w is None:
+                # trường parse được nhưng form rút gọn không có ô nhập
+                # (cọc, phí DV, giờ giấc, tiện ích...) -> GIỮ lại, payload() sẽ gửi
+                self._extra_fields[k] = v
                 continue
             if isinstance(w, QComboBox):
                 if not w.currentText().strip():
@@ -438,6 +445,10 @@ class QuickAddDialog(QDialog):
             "owner_phone": g("owner_phone"),
             "notes": g("notes"),
             "status": "new",
+            # trường parse được nhưng form rút gọn không có ô: cọc, phí DV,
+            # giờ giấc, tiện ích (autofill đã ghi vào _extra_fields)
+            **{k: v for k, v in self._extra_fields.items() if k in
+               ("deposit", "service_fee", "access_hours", "amenities")},
         }
 
     def _set_banner(self, color: str, head: str, body: str = ""):

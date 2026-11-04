@@ -54,6 +54,7 @@ GROUP_TITLES = [
     "6. Liên hệ chủ nhà / Zalo",
     "7. Media (Drive) & đánh giá",
     "8. Ghi chú & trạng thái",
+    "9. Chi phí dịch vụ, giờ giấc & tiện ích tòa nhà",
 ]
 
 # Màu đại diện cho mức độ nghi ngờ trùng (gọi lúc dùng -> đúng chế độ giao diện hiện tại)
@@ -564,15 +565,29 @@ class RoomEditForm(QDialog):
         # ---------- nhóm 3: Giá & cọc ----------
         def _g3(f):
             self.ed["price"], self.ed["price_unknown"] = self._line_with_unknown(
-                "Ví dụ: 7000000 hoặc 7.5tr")
+                "Ví dụ: 7500000 / 7.5tr / 7,5 triệu")
             self.ed["deposit"], self.ed["deposit_unknown"] = self._line_with_unknown(
-                "Ví dụ: 7000000")
+                "Ví dụ: 7500000 / 7tr / 500 nghìn")
+            # ô chữ hiện SỐ TIỀN ĐỌC BẰNG CHỮ khi gõ -> khỏi đếm số 0
+            self.lbl_price_hint = QLabel("")
+            self.lbl_deposit_hint = QLabel("")
+            for lb in (self.lbl_price_hint, self.lbl_deposit_hint):
+                lb.setStyleSheet(f"color:{theme.c('ok')}; font-size:11px; background:transparent;")
+                lb.setToolTip("Tự đổi số tiền sang dạng dễ đọc:\n"
+                              "7.5tr / 7,5 triệu / 7500000 -> 7.500.000 · 7,5 triệu")
+                lb.setMinimumWidth(140)
             f.addWidget(QLabel("Giá thuê (VNĐ):"), 0, 0)
             f.addWidget(self.ed["price"], 0, 1)
             f.addWidget(self.ed["price_unknown"], 0, 2)
+            f.addWidget(self.lbl_price_hint, 0, 3)
             f.addWidget(QLabel("Tiền cọc (VNĐ):"), 1, 0)
             f.addWidget(self.ed["deposit"], 1, 1)
             f.addWidget(self.ed["deposit_unknown"], 1, 2)
+            f.addWidget(self.lbl_deposit_hint, 1, 3)
+            self.ed["price"].textChanged.connect(
+                lambda t: self._money_hint(t, self.lbl_price_hint))
+            self.ed["deposit"].textChanged.connect(
+                lambda t: self._money_hint(t, self.lbl_deposit_hint))
         add_group(3, _g3)
 
         # ---------- nhóm 4: Tiện ích ----------
@@ -648,6 +663,37 @@ class RoomEditForm(QDialog):
             f.addWidget(QLabel("Ghi chú:"), 2, 0)
             f.addWidget(self.ed["notes"], 2, 1)
         add_group(8, _g8)
+
+        # ---------- nhóm 9: Chi phí dịch vụ, giờ giấc & tiện ích ----------
+        def _g9(f):
+            self.ed["service_fee"] = self._line(
+                "VD: Điện 3.500đ/kWh · Nước 25.000đ/m3 · Wifi 100k/tháng")
+            self.ed["access_hours"] = self._line(
+                "VD: Ra vào tự do 24/7 · hoặc 6h-23h, có quản gia")
+            self.ed["amenities"] = self._line(
+                "VD: Thang máy, camera, giữ xe, điều hòa, giặt đồ...")
+            f.addWidget(QLabel("Chi phí dịch vụ:"), 0, 0)
+            f.addWidget(self.ed["service_fee"], 0, 1, 1, 3)
+            f.addWidget(QLabel("Giờ ra vào:"), 1, 0)
+            f.addWidget(self.ed["access_hours"], 1, 1, 1, 3)
+            f.addWidget(QLabel("Tiện ích tòa nhà:"), 2, 0)
+            f.addWidget(self.ed["amenities"], 2, 1, 1, 3)
+        add_group(9, _g9)
+
+    def _money_hint(self, text: str, label) -> None:
+        """Hiển thị số tiền dưới dạng chữ ngay khi gõ: 7.5tr -> '7.500.000 · 7,5 triệu'."""
+        t = str(text or "").strip()
+        if not t:
+            label.setText("")
+            return
+        v = tu.normalize_price(t)
+        if not v:
+            label.setText("⚠ Chưa nhận diện được số tiền")
+            label.setStyleSheet(f"color:{theme.c('orange')}; font-size:11px; background:transparent;")
+            return
+        words = tu.money_words(v)
+        label.setText(f"= {tu.format_money(v)}" + (f" · {words}" if words else ""))
+        label.setStyleSheet(f"color:{theme.c('ok')}; font-size:11px; background:transparent;")
 
     def _line(self, placeholder: str = "") -> QLineEdit:
         ed = QLineEdit()
@@ -977,7 +1023,8 @@ class RoomEditForm(QDialog):
     def _apply_listing(self, p: Dict[str, Any]):
         """Điền các trường đã tách từ tin đăng vào form."""
         text_fields = ("house_number", "street", "ward", "district", "room_type",
-                       "area", "floor", "capacity", "pet_policy", "owner_phone")
+                       "area", "floor", "capacity", "pet_policy", "owner_phone",
+                       "service_fee", "access_hours", "amenities")
         for k in text_fields:
             v = str(p.get(k) or "").strip()
             if v and k in self.ed:
@@ -1134,6 +1181,9 @@ class RoomEditForm(QDialog):
             "drive_link": txt("drive_link"),
             "image_paths": ",".join(self.img_upload.paths()),
             "notes": notes,
+            "service_fee": txt("service_fee"),
+            "access_hours": txt("access_hours"),
+            "amenities": txt("amenities"),
             "status": status_key,
             "status_text": RoomStatus.label(status_key),
             "surveyed": None if sv is None else (1 if sv is True else 0),
@@ -1193,7 +1243,9 @@ class RoomEditForm(QDialog):
             # reset form cho lần nhập kế tiếp (giữ nguyên địa chỉ - nhập nhiều căn cùng tòa)
             keep = {k: payload.get(k) for k in
                     ("house_number", "street", "ward", "district", "room_type",
-                     "price", "deposit", "capacity", "owner_phone", "zalo_group")}
+                     "price", "deposit", "capacity", "owner_phone", "zalo_group",
+                     # nhập nhiều phòng CÙNG TÒA -> giữ nguyên phí DV / giờ / tiện ích
+                     "service_fee", "access_hours", "amenities")}
             self.room = {}
             self.is_new = True
             self._seed_values()

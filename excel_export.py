@@ -107,7 +107,9 @@ ROOM_HEADERS = ["STT", "Trạng Thái", "Khảo Sát", "Số Nhà", "Tên Đư�
                 "SĐT Chủ / Admin", "Group Zalo Tòa Nhà", "Link Drive Kho Media",
                 "Chính Sách & Ghi Chú Chi Tiết", "Nhận Khách Nước Ngoài 🌏", "Diện Tích (m2)",
                 # 2 cột BỔ SUNG cuối bảng (không dịch chuyển cột cũ -> công thức/định dạng gốc giữ nguyên)
-                "Số Căn", "Tầng"]
+                "Số Căn", "Tầng",
+                # 3 cột BỔ SUNG đợt 2 (cũng thêm cuối bảng -> công thức COUNTIF gốc giữ nguyên)
+                "Chi Phí Dịch Vụ", "Giờ Ra Vào / Giờ Giác", "Tiện Ích Tòa Nhà"]
 BUILDING_HEADERS = ["STT", "Số Nhà", "Tên Đường", "Phường", "Quận / Khu Vực Cũ",
                     "Chủ Tòa / Admin QLH", "Số Điện Thoại", "Link Group Zalo", "Quy Định Xe Điện",
                     "Quy Định Pet", "Chính Sách Hoa Hồng Sale"]
@@ -129,7 +131,8 @@ def export_workbook(path: str, rooms: List[Dict[str, Any]], buildings: List[Dict
     mapping = {name: i for i, name in enumerate(
         ["stt", "status", "surveyed", "house_number", "street", "ward", "district", "room_code",
          "room_type", "price", "deposit", "capacity", "ev_support", "pet_policy", "rating",
-         "owner_phone", "zalo_group", "drive_link", "notes", "foreign_guest", "area", "unit_code", "floor"])}
+         "owner_phone", "zalo_group", "drive_link", "notes", "foreign_guest", "area", "unit_code", "floor",
+         "service_fee", "access_hours", "amenities"])}
     data_rows: List[List[Any]] = []
     for i, r in enumerate(rooms, start=1):
         if r.get("deleted") and not include_deleted:
@@ -141,7 +144,8 @@ def export_workbook(path: str, rooms: List[Dict[str, Any]], buildings: List[Dict
     _write_sheet(ws, "KHO HÀNG PHÒNG TRỐNG",
                  "Dữ liệu tổng hợp từ phần mềm quản lý kho căn hộ (xuất từ SQLite/Google Sheets)",
                  ROOM_HEADERS, data_rows, widths=[6, 16, 12, 10, 20, 12, 18, 14, 14, 14, 14,
-                                                  16, 12, 14, 30, 24, 26, 34, 60, 16, 12, 10, 12, 8])
+                                                  16, 12, 14, 30, 24, 26, 34, 60, 16, 12, 10, 12, 8,
+                                                  40, 24, 30])
     # dòng tổng cộng
     total_row = 6 + len(data_rows)
     ws.cell(row=total_row, column=3, value="TỔNG CỘNG / TRUNG BÌNH").font = Font(bold=True)

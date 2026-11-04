@@ -139,6 +139,7 @@ def normalize_price(value) -> int:
     """Đưa mọi dạng giá về số nguyên VNĐ.
 
     Hỗ trợ: 7000000 | 7.000.000 | 7,000,000 | 7.5 | 7tr | 7 triệu | '7.500.000đ'
+             4tr5 (=4,5 triệu) | 5tr5 | 11.6Tr | '5.200 K' (=5,2 triệu) | 4K | 3,8k
     """
     if value is None or value == "":
         return 0
@@ -148,16 +149,34 @@ def normalize_price(value) -> int:
     if not s:
         return 0
     s = s.replace("vnd", "").replace("dong", "").replace("d", "").strip()
-    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(trieu|tr|nghin|n|k)\b", s)
+
+    def _num(num_s: str) -> float:
+        """'5.200' (nhóm nghìn) -> 5200 | '3,8' (thập phân) -> 3.8 | '7.5' -> 7.5"""
+        num_s = num_s.replace(",", ".")
+        grouped = bool(re.fullmatch(r"\d{1,3}(?:\.\d{3})+", num_s))
+        if grouped:
+            return float(num_s.replace(".", ""))
+        return float(num_s)
+
+    # (a) 4tr5 / 5tr5 -> 4,5 triệu / 5,5 triệu (chữ số DÍNH sau "tr" = thập phân)
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:trieu|tr)(\d)", s)
     if m:
         num = float(m.group(1).replace(",", "."))
+        if num == int(num):          # 4tr5 -> 4 + 5/10 = 4.5
+            num += int(m.group(2)) / 10
+        return int(round(num * 1_000_000))
+    # (b) 7tr / 11.6Tr / 5.200 K / 4K / 3,8k
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(trieu|tr|nghin|n|k)\b", s)
+    if m:
+        num = _num(m.group(1))
         unit = m.group(2)
         if unit in ("trieu", "tr"):
             return int(round(num * 1_000_000))
         if unit in ("nghin", "n", "k"):
+            # '5.200 K' = 5200 nghìn = 5.200.000 (nhóm nghìn x1000)
             return int(round(num * 1_000))
         return int(round(num))
-    # 7.000.000 / 7,000,000 / 7000000
+    # (c) 7.000.000 / 7,000,000 / 7000000
     cleaned = s.replace(".", "").replace(",", "")
     digits = re.sub(r"[^0-9]", "", cleaned)
     return int(digits) if digits else 0
@@ -285,6 +304,7 @@ def unique_seq(items: Iterable) -> list:
 _KNOWN_DISTRICTS = [
     # (chuỗi tìm trong text đã norm -> tên hiển thị)
     ("binh thanh", "Q. Bình Thạnh"),
+    ("thanh my tay", "Q. Bình Thạnh"),   # khu cũ ở Bình Thạnh - hay gặp trong tin Zalo
     ("go vap", "Q. Gò Vấp"),
     ("phu nhuan", "Q. Phú Nhuận"),
     ("tan binh", "Q. Tân Bình"),
@@ -319,6 +339,10 @@ _FLOOR_RE = re.compile(r"(?:\btang|\blau)\s*(\d{1,2})\b")
 _CAPACITY_RE = re.compile(r"(\d{1,2})\s*(?:nguoi|ng)\D{0,8}?(\d{1,2})\s*(?:xe|x)\b")
 _MONEY_UNIT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:trieu|tr)\b")
 _MONEY_PLAIN_RE = re.compile(r"\b(\d{6,9})\b")
+# 8.700.000 / 6.400.000 (nhóm nghìn, có thể kèm đơn vị 'K' -> '5.200 K')
+_MONEY_DOTS_RE = re.compile(r"\b\d{1,3}(?:\.\d{3})+(?:[.,]\d+)?\s*(?:trieu|tr|nghin|k)?", re.IGNORECASE)
+# đơn vị dính liền + chữ số thập phân: 4tr5 / 5tr5
+_MONEY_TRDIG_RE = re.compile(r"\d+(?:[.,]\d+)?\s*(?:trieu|tr)\d", re.IGNORECASE)
 
 # từ KHÔNG phải tên đường (tránh nhầm "2 người 2xe giá 7tr" thành địa chỉ)
 _NON_STREET_HEADS = {
@@ -327,19 +351,30 @@ _NON_STREET_HEADS = {
 }
 
 
-def _money_near(n: str, anchors: tuple, after_len: int = 40) -> int:
-    """Tìm số tiền NGAY SAU từ khóa (vd 'gia', 'coc') trong text đã norm."""
+def _money_near(n: str, anchors: tuple, after_len: int = 40,
+                skip_before: tuple = ()) -> int:
+    """Tìm số tiền NGAY SAU từ khóa (vd 'gia', 'coc') trong text đã norm.
+
+    Nhận mọi dạng: 7tr | 4tr5 | 8.700.000 | 5.200 K | 7000000.
+    skip_before: từ khoá NGAY TRƯỚC số tiền -> bỏ qua (vd tìm 'gia' nhưng gặp
+    'cọc 3tr' -> không lấy nhầm tiền cọc làm giá).
+    """
     for anchor in anchors:
         m = re.search(rf"\b{anchor}\b", n)
         if not m:
             continue
         seg = n[m.end(): m.end() + after_len]
-        mm = _MONEY_UNIT_RE.search(seg)
-        if mm:
-            return normalize_price(mm.group(0))
-        mm = _MONEY_PLAIN_RE.search(seg)
-        if mm:
-            return int(mm.group(1))
+        for pat in (_MONEY_TRDIG_RE, _MONEY_UNIT_RE, _MONEY_DOTS_RE, _MONEY_PLAIN_RE):
+            mm = pat.search(seg)
+            if not mm:
+                continue
+            token = mm.group(0)
+            pre = n[max(0, m.end() + mm.start() - 14): m.end() + mm.start()]
+            if skip_before and any(w in pre for w in skip_before):
+                continue
+            v = normalize_price(token)
+            if v:
+                return v
     return 0
 
 
@@ -349,7 +384,8 @@ def _window(text: str, pos: int, before: int = 30, after: int = 150) -> str:
         return ""
     pos = max(0, min(int(pos or 0), len(text) - 1))
     start = max(0, pos - before)
-    if start > 0:
+    # đang cắt giữa từ -> nhảy tới đầu từ kế; nếu đã đứng ĐÚNG đầu từ thì GIỮ NGUYÊN
+    if start > 0 and text[start - 1].isalnum():
         sp = text.find(" ", start)
         if sp != -1:
             start = sp + 1
@@ -360,62 +396,202 @@ def _window(text: str, pos: int, before: int = 30, after: int = 150) -> str:
     return collapse_space(text[start:end])[:200]
 
 
-def _parse_fee_hours_amenities(raw: str, n: str) -> dict:
-    """Tách chi phí dịch vụ / giờ giấc / tiện ích tòa nhà từ tin đăng.
+_FEE_KW_RE = re.compile(r"\b(?:dien|nuoc|wifi|internet|phi dich vu|phi dv|phi quan ly|"
+                        r"phi dich|phi giu xe|phi gui xe|giu xe|gui xe|cham soc|giat do|"
+                        r"dich vu|dv)\b|\bxe\s*:")
+_FEE_MONEY_RE = re.compile(
+    r"\d+(?:[.,]\d+)?\s*(?:trieu|tr|nghin|k)\b"          # 4k / 100k / 7tr
+    r"|\b\d{1,3}(?:[.,]\d{3})+(?:[.,]\d+)?(?!\d)"        # 4.000 / 3.500đ / 8.700.000
+    r"|\b\d{4,}(?!\d)"                                    # 4000 / 15000 / 4000đ
+    r"|\b(?:free|mien phi)\b", re.IGNORECASE)             # free / miễn phí
 
-    - service_fee:  đoạn có từ khoá (điện, nước, wifi, giữ xe, phí...) + có số tiền
-    - access_hours: đoạn có "giờ ra vào / giới nghiêm / mở cửa / 24/7" hoặc dải giờ 6h-23h
-    - amenities:    quét cả tin, gom các từ khoá tiện ích tìm thấy (giữ nguyên tiếng Việt)
+
+def _is_fee_text(t: str) -> bool:
+    """Đoạn/cụm có từ khoá phí TIỀN + có số tiền (hoặc 'free') -> là dòng chi phí."""
+    ns = norm(t)
+    return bool(ns and _FEE_KW_RE.search(ns) and _FEE_MONEY_RE.search(ns))
+
+
+def _parse_fee_hours_amenities(lines: list, n: str) -> dict:
+    """Tách chi phí dịch vụ / giờ giấc / tiện ích tòa nhà theo TỪNG DÒNG tin.
+
+    - service_fee: mỗi DÒNG (hoặc cụm sau dấu ',' nếu ≥2 cụm hợp lệ) có
+      từ khoá phí + số tiền -> gom lại, nối ' · ' (giữ nguyên văn tiếng Việt).
+    - access_hours: ưu tiên dòng có 'giờ giấc/ra vào tự do/giới nghiêm'
+      (vòng quanh từ khoá đến hết dòng), sau đó mới 'mở cửa / 24/7 / 24/24'.
+    - amenities: gom từ khoá tiện ích trên toàn tin (text đã norm).
     """
     out = {"service_fee": "", "access_hours": "", "amenities": ""}
-    segs = [collapse_space(s) for s in re.split(r"[\n;|•●]+", str(raw or "")) if s and s.strip()]
 
-    fee_pairs = (("điện", "dien"), ("nước", "nuoc"), ("wifi", "wifi"), ("internet", "internet"),
-                 ("phí dịch vụ", "phi dich vu"), ("phí dv", "phi dv"),
-                 ("phí quản lý", "phi quan ly"), ("giữ xe", "giu xe"), ("gửi xe", "gui xe"),
-                 ("chăm sóc", "cham soc"), ("giặt đồ", "giat do"), ("phí dịch", "phi dich"))
-
-    # ---- chi phí dịch vụ: đoạn CÓ từ khoá TIỀN + CÓ số tiền
-    for seg in segs:
-        low, ns = seg.lower(), norm(seg)
-        hit = next((kw for kw, kn in fee_pairs if kw in low or kn in ns), None)
-        if not hit:
+    # ---- chi phí dịch vụ: quét TỪNG DÒNG (không dùng text gộp -> không lẫn rác)
+    fee_items: List[str] = []
+    for line in lines:
+        clean = collapse_space(str(line).strip(" \t-+•●·*>#=["))   # bỏ bullet/markdown
+        if not clean:
             continue
-        if not (_MONEY_UNIT_RE.search(ns) or re.search(r"\b\d{1,3}[.,]\d{3}(?:\.\d{3})*\b", ns)
-                or re.search(r"\b\d{4,}\b", ns)):
-            continue   # có từ khoá nhưng không có số tiền -> chưa phải dòng chi phí
-        out["service_fee"] = _window(seg, low.find(hit) if hit in low else 0)
-        break
+        # tách cụm theo ', ' '; ' '. ' -> '3.500đ/kWh' KHÔNG bị tách (không có '. ')
+        clauses = [c.strip() for c in re.split(r"[,;]\s*|\.\s+", clean) if c.strip()]
+        hit = [c for c in clauses if _is_fee_text(c)]
+        if len(hit) >= 2:
+            fee_items.extend(hit)          # 1 dòng nhiều phí -> tách cụm cho gọn
+        elif _is_fee_text(clean):
+            fee_items.append(clean)        # giữ nguyên cả dòng (vd chứa '(rác, wifi...)')
+        if len(fee_items) >= 12:
+            break
+    out["service_fee"] = unique_seq(fee_items) and " · ".join(unique_seq(fee_items))[:400] or ""
 
-    # ---- giờ giấc: "giờ ra vào / giới nghiêm / mở cửa / 24/7" hoặc dải giờ 6h-23h
-    hour_accents = ("giờ ra vào", "giới nghiêm", "giờ mở cửa", "giờ giấc",
-                    "giờ canh", "ra vào tự do", "24/7")
-    hour_norms = tuple(norm(h) for h in hour_accents)
-    hour_range = re.compile(r"\b\d{1,2}\s*h(?:\s*[:.]?\s*\d{2})?\s*(?:-|–|—|đến|tới)\s*\d{1,2}\s*h",
-                            re.IGNORECASE)
-    for seg in segs:
-        low, ns = seg.lower(), norm(seg)
-        m = next(((kw, low.find(kw)) for kw in hour_accents if kw in low), None)
-        if m:
-            out["access_hours"] = _window(seg, m[1])
-            break
-        m = next(((kw, ns.find(kw)) for kw in hour_norms if kw in ns), None)
-        if m:
-            out["access_hours"] = _window(ns, m[1])
-            break
-        mr = hour_range.search(ns)
-        if mr:
-            out["access_hours"] = _window(ns, mr.start())
+    # ---- giờ giấc: pass 1 = từ khoá MẠNH, pass 2 = từ khoá YẾU (tránh
+    #     'Camera 24/24' lọt vào trước 'Giờ giấc tự do')
+    strong = ("gio giac", "gio ra vao", "gioi nghiem", "gio mo cua", "gio cham cong",
+              "gio canh", "ra vao tu do")
+    weak = ("mo cua", "24/7", "24/24")
+    hour_range = re.compile(r"\b\d{1,2}\s*h(?:\s*[:.]?\s*\d{2})?\s*(?:-|–|—|đến|tới|den|toi)\s*\d{1,2}\s*h")
+    for pats in (strong, weak):
+        for line in lines:
+            low = str(line).lower()
+            low_na = strip_accents(low)          # BỎ DẤU nhưng GIỮ NGUYÊN độ dài -> map vị trí về low
+            pos, kw = -1, ""
+            for pat in pats:
+                if pat in low_na:
+                    kw, pos = pat, low_na.find(pat)
+                    break
+            if pos < 0:
+                m = hour_range.search(low_na)
+                if m and pats is weak:
+                    kw, pos = "range", m.start()
+            if pos >= 0:
+                win = _window(low, pos, before=0, after=80) or kw
+                # cắt tại câu kế ('. ') -> không kéo theo rác phía sau
+                dot = win.find(". ")
+                if dot > 8:
+                    win = win[:dot]
+                out["access_hours"] = win
+                break
+        if out["access_hours"]:
             break
 
     # ---- tiện ích tòa nhà: gom từ khoá trên toàn tin (n = text đã norm)
     amen = (("thang may", "Thang máy"), ("camera", "Camera"), ("dieu hoa", "Điều hòa"),
-            ("be boi", "Hồ bơi"), ("giat do", "Giặt đồ"), ("truyen hinh", "Truyền hình"),
+            ("be boi", "Hồ bơi"), ("truyen hinh", "Truyền hình"),
             ("wifi", "Wifi"), ("internet", "Internet"), ("giu xe", "Giữ xe"),
             ("bao ve", "Bảo vệ"), ("an ninh", "An ninh"), ("san vuon", "Sân vườn"),
-            ("ham do xe", "Hầm để xe"), ("sieu thi", "Siêu thị"), ("choi game", "Chơi game"))
-    out["amenities"] = ", ".join(disp for kw, disp in amen if kw in n)
+            ("ham do xe", "Hầm để xe"), ("sieu thi", "Siêu thị"), ("choi game", "Chơi game"),
+            ("khoa cong van tay", "Khóa vân tay"), ("khoa van tay", "Khóa vân tay"),
+            ("van tay", "Vân tay"), ("pccc", "PCCC"),
+            ("giac xay", "Giặt sấy"), ("giat xay", "Giặt sấy"), ("giat phoi", "Giặt phơi"),
+            ("may giat chung", "Máy giặt chung"))
+    found = [disp for kw, disp in amen if kw in n]
+    if "Khóa vân tay" in found and "Vân tay" in found:
+        found.remove("Vân tay")           # không liệt kê 2 lần cùng 1 tính năng
+    out["amenities"] = ", ".join(found)
     return out
+
+
+_ADDR_ANCHOR_RE = re.compile(r"\bdia chi\b|\bdu an\b|\btoa nha\b|\bnha tai\b|\bdia diem\b")
+_DATE_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})(?!\s*/\d)")
+_WARD_RAW_RE = re.compile(r"\bp\.?\s*\d{1,2}\b|\bph[uư]\S*ng\s+\d{1,2}\b", re.IGNORECASE)
+_WARD_WORD_RE = re.compile(r"^\s*(?:ph[uư]\S*ng\b|\bp\b\.?\s*[a-zà-ỹ])", re.IGNORECASE)
+_WARD_NAME_RE = re.compile(r"\bph[uư]\S*ng\s+([A-Za-zÀ-ỹ][A-Za-zÀ-ỹ\s]{0,30})", re.IGNORECASE)
+_ROOM_TOK_RE = re.compile(r"^[A-Za-z]\d{1,4}$")
+# từ kết thúc tên đường: giá / thuê / SĐT / liên hệ / chính chủ
+_STOP_RAW_RE = re.compile(r"\b[Gg]i[áa]\b|\b[Gg]ia\b|\b[Tt]hu[êe]\b|\b[Ss][ĐD][Tt]\b"
+                          r"|li[êe]n h[ệe]|\b[Cc]h[íi]nh ch[ủu]\b|\bdt\b|\bmobile\b")
+# tên đường viết tắt hay gặp -> tên đầy đủ (khớp địa chỉ với tin khác không cách viết)
+_STREET_ABBR = {"xvnt": "Xô Viết Nghệ Tĩnh", "nxc": "Nguyễn Xí", "hvt": "Hoàng Văn Thụ"}
+
+
+def _extract_address(lines) -> tuple:
+    """Quét TỪNG DÒNG tin -> (điểm, số nhà, tên đường, phường theo tên).
+
+    Điểm = tiêu chí dòng ĐỊA CHỈ (≥2 mới chấp nhận):
+      +4 có 'địa chỉ / dự án / tòa nhà' | +2 có phường | +2 có quận quen thuộc
+      +2 có tên đường viết tắt (XVNT...) | +1 số nhà có '/'
+    Dòng ngày tháng ('3/11', 'M8/11 TRỐNG'), 'Mã phòng: 403', 'Giá: 6 tr'
+    không đủ điểm -> KHÔNG bị nhận nhầm làm địa chỉ (lỗi cũ: địa chỉ lẫn rác).
+    """
+    best = (0, "", "", "")
+    for line in lines:
+        m = re.match(r"^(.*?)[:：]?\s*(\d[\d/A-Za-z]*)\s+([A-Za-zÀ-ỹ].*)$", str(line or ""))
+        if not m:
+            continue
+        label, hnum, rest = m.group(1), m.group(2), m.group(3)
+        # '3/11' | '26/11' (≤31/≤12, không có phần thứ 3) = NGÀY -> bỏ
+        dm = _DATE_RE.search(hnum)
+        if (re.fullmatch(r"\d{1,2}/\d{1,2}", hnum) and dm
+                and int(dm.group(1)) <= 31 and int(dm.group(2)) <= 12):
+            continue
+        score = 0
+        ns_label, ns_rest = norm(label), norm(rest)
+        if _ADDR_ANCHOR_RE.search(ns_label):
+            score += 4
+        # đầu tin đăng: 'Cho thuê 319 Đường Quick Add giá...' (đủ điểm để tự điền)
+        if re.search(r"\b(?:cho thue|nha cho thue|can ho cho thue|phong tro|mat bang)\b",
+                     ns_label):
+            score += 2
+        if _WARD_RAW_RE.search(rest) or _WARD_NAME_RE.search(rest):
+            score += 2
+        if any(re.search(rf"\b{pat}\b", ns_rest) for pat, _ in _KNOWN_DISTRICTS):
+            score += 2
+        if any(t in _STREET_ABBR for t in ns_rest.split()):
+            score += 2
+        if "/" in hnum:
+            score += 1
+        if score < 2 or score <= best[0]:
+            continue
+
+        # ---- cắt tên đường tại ranh giới phường/quận/giá/SĐT/mã phòng
+        rest2 = re.sub(r"(?:0|\+84)[\d\s.\-]{8,13}\d", " ", rest)
+        rest2 = re.sub(r"\b\d+(?:[.,]\d+)?\s*(?:trieu|tr|nghin|k)\b", " ", rest2)
+        rest2 = re.sub(r"\b\d{6,9}\b", " ", rest2)
+        cut = len(rest2)
+        wm = _WARD_RAW_RE.search(rest2)
+        if wm:
+            cut = min(cut, wm.start())
+        # ranh giới DẤU PHẨY: chunk kế tiếp bắt đầu bằng phường/quận -> cắt tại đó
+        pos = 0
+        for i, chunk in enumerate(rest2.split(",")):
+            if i:
+                cns = norm(chunk)
+                cns_bare = re.sub(r"^(?:q|quan)\.?\s+", "", cns)     # 'q. binh thanh' -> 'binh thanh'
+                if (_WARD_RAW_RE.search(chunk) or _WARD_WORD_RE.match(chunk)
+                        or any(cns_bare.startswith(p) for p, _ in _KNOWN_DISTRICTS)):
+                    cut = min(cut, pos)
+                    break
+            pos += len(chunk) + 1
+        sm = _STOP_RAW_RE.search(rest2)
+        if sm:
+            cut = min(cut, sm.start())
+        # token: cắt tại phường/quận theo token (cũ) + mã phòng dạng 'T23'/'P402'
+        tokens = rest2.split()
+        starts, p = [], 0
+        for tok in tokens:
+            idx = rest2.find(tok, p)
+            starts.append(idx if idx >= 0 else p)
+            p = (idx if idx >= 0 else p) + len(tok)
+        _QNUM = re.compile(r"^[Qq]\.?\d{1,2}$")
+        for i, tok in enumerate(tokens):
+            one, two = norm(tok), norm(" ".join(tokens[i:i + 2]))
+            hit = (any(one == pat or two == pat or two.startswith(pat + " ")
+                       for pat, _ in _KNOWN_DISTRICTS)
+                   or one in _KNOWN_DISTRICT_ABBR or _QNUM.match(tok)
+                   or _ROOM_TOK_RE.match(tok))
+            if hit and 0 <= starts[i] < cut:
+                cut = starts[i]
+
+        street = collapse_space(rest2[:cut].strip(" ,.;:-"))
+        street = re.sub(r"^(cho thue|can ho|phong|nha)\s+", "", street, flags=re.IGNORECASE)
+        words = norm(street).split()
+        if not street or not words:
+            continue
+        if words[0] in _NON_STREET_HEADS or words[0] in ("ma", "phong", "dang", "trong", "sap"):
+            continue
+        street = _STREET_ABBR.get(words[0], street) if len(words) == 1 else street
+        ward_name = ""
+        wn = _WARD_NAME_RE.search(rest)
+        if wn:
+            ward_name = collapse_space(wn.group(1)).strip(" ,.;:-")
+        best = (score, hnum, street, ward_name)
+    return best
 
 
 def parse_listing_text(text: str) -> dict:
@@ -427,36 +603,91 @@ def parse_listing_text(text: str) -> dict:
     service_fee (chi phí dịch vụ), access_hours (giờ giấc),
     amenities (tiện ích tòa nhà)
     """
-    out = {k: "" for k in ("house_number", "street", "ward", "district", "room_type",
-                           "area", "floor", "capacity", "pet_policy", "owner_phone", "notes",
-                           "service_fee", "access_hours", "amenities")}
+    out = {k: "" for k in ("house_number", "street", "ward", "district", "room_code",
+                           "room_type", "area", "floor", "capacity", "pet_policy",
+                           "owner_phone", "notes", "service_fee", "access_hours", "amenities")}
     # không tách được -> None (Chưa biết), KHÔNG được gán 0 (sẽ thành "Không")
     out.update({"price": None, "deposit": None, "ev_support": None})
     if not text or not str(text).strip():
         return out
 
+    # GIỮ NGUYÊN xuống dòng theo TỪNG DÒNG -> tách địa chỉ/chi phí không lẫn rác
+    lines = [collapse_space(strip_emoji(l)) for l in str(text).splitlines()]
+    lines = [l for l in lines if l]
     raw = collapse_space(strip_emoji(str(text)))
     n = norm(raw)
-    # bỏ số điện thoại khỏi n để không nhầm với giá
+    # bỏ số điện thoại khỏi n để không nhầm với giá (CHỈ khi là SĐT Việt Nam thật:
+    # 03/05/07/08/09xxx hoặc 02xxx... - tránh '6.400.000 103' thành SĐT giả)
     phone_m = _PHONE_RE.search(raw)
     if phone_m:
-        out["owner_phone"] = phone_key(phone_m.group())
-        n = re.sub(r"(?:0|\+84)[\d\s.\-]{8,13}\d", " ", n)
+        pk = phone_key(phone_m.group())
+        if re.match(r"^0(?:3|5|7|8|9)\d{8}$|^0\d{2,3}\d{7,8}$", pk) and pk[:2] != "00":
+            out["owner_phone"] = pk
+            n = re.sub(r"(?:0|\+84)[\d\s.\-]{8,13}\d", " ", n)
 
-    # ---- giá thuê: ưu tiên sau từ 'gia'/'thue'; nếu không có -> đơn vị 'tr' đầu tiên
-    price = _money_near(n, ("gia", "gia thue", "thue", "price"))
+    # ---- TIN NHIỀU PHÒNG: 'Mã 501_502: 6.400.000' | '103_104: 7.300.000'
+    out["_rooms"] = []
+    for line in lines:
+        mm = re.match(r"^(?:ma(?:\s*phong)?)?\s*:?\s*(\d{3,4}(?:\s*[_\-]\s*\d{3,4})+)\s*:?\s*(.+)$",
+                      norm(line))
+        if not mm:
+            continue
+        price_g = normalize_price(mm.group(2))
+        for code in re.split(r"[\s_\-]+", mm.group(1)):
+            if code:
+                out["_rooms"].append({"room_code": code,
+                                      "price": price_g or None})
+
+    # ---- giá thuê: ưu tiên 'giá chốt'/'giá'; bỏ qua 'cọc 3tr' (không phải giá)
+    price = _money_near(n, ("gia chot", "gia cho thue", "gia thue", "gia", "thue", "price"),
+                        skip_before=("coc",))
     if not price:
-        mm = _MONEY_UNIT_RE.search(n)
-        if mm:
-            price = normalize_price(mm.group(0))
-        else:
-            mm = _MONEY_PLAIN_RE.search(n)
-            if mm:
-                price = int(mm.group(1))
+        for mm in re.finditer(
+                r"\d{1,3}(?:\.\d{3})+(?:[.,]\d+)?\s*(?:trieu|tr|nghin|k)?"
+                r"|\d+(?:[.,]\d+)?\s*(?:trieu|tr)(?:\d|\b(?!ng))"
+                r"|\b\d{6,9}\b", n):
+            if "coc" in n[max(0, mm.start() - 14):mm.start()]:
+                continue        # 'cọc 3tr' -> không lấy làm giá
+            v = normalize_price(mm.group(0))
+            if v:
+                price = v
+                break
+    # 'giá 4.8 triệu, giảm còn 4.5 triệu' -> giá HIỆN TẠI = mức giảm còn
+    gm = re.search(r"giam\s+(?:con|di|gia con)?\s*:?\s*"
+                   r"(\d+(?:[.,]\d+)?\s*(?:trieu|tr)\d?|\d{1,3}(?:\.\d{3})+)", n)
+    if gm:
+        gv = normalize_price(gm.group(1))
+        if gv:
+            price = gv
     out["price"] = price or None      # không tách được -> None (Chưa biết), không phải 0
+    if out["_rooms"] and not out["price"]:
+        out["price"] = out["_rooms"][0]["price"]
 
-    # ---- tiền cọc: sau từ 'coc' / 'dat coc'
-    out["deposit"] = _money_near(n, ("coc", "dat coc")) or None
+    # ---- tiền cọc: 'cọc 3tr' (tiền thật) | 'cọc 1th/1.5 tháng' (x số tiền THUÊ)
+    deposit = 0
+    for cm in re.finditer(r"\b(?:dat\s+)?coc\b", n):
+        seg = n[cm.end(): cm.end() + 44]
+        for pat in (_MONEY_TRDIG_RE, _MONEY_UNIT_RE, _MONEY_DOTS_RE, _MONEY_PLAIN_RE):
+            mm = pat.search(seg)
+            if mm and "gia" not in seg[max(0, mm.start() - 14):mm.start()]:
+                v = normalize_price(mm.group(0))
+                if v:
+                    deposit = v
+                    break
+        if deposit:
+            break
+        if price:
+            months = [float(x.group(1).replace(",", "."))
+                      for x in re.finditer(r"(\d+(?:[.,]\d+)?)\s*(?:thang|th)\b", seg)]
+            months = [x for x in months if 0.5 <= x <= 3]
+            if not months:
+                mm = re.search(r"(\d+[.,]\d+)", seg)      # 'cọc 1.5' (không ghi 'tháng')
+                if mm and 0.5 <= float(mm.group(1).replace(",", ".")) <= 3:
+                    months = [float(mm.group(1).replace(",", "."))]
+            if months:
+                deposit = int(round(price * months[0]))
+                break
+    out["deposit"] = deposit or None
 
     # ---- dạng phòng
     for pat, label in _ROOM_TYPE_PATTERNS:
@@ -464,10 +695,14 @@ def parse_listing_text(text: str) -> dict:
             out["room_type"] = label
             break
 
-    # ---- sức chứa: "2 người 2 xe" / "2n2x"
+    # ---- sức chứa: "2 người 2 xe" trước, sau đó "ở tối đa: 4 người"
     cm = _CAPACITY_RE.search(n)
     if cm:
         out["capacity"] = f"{cm.group(1)} Ng/{cm.group(2)} Xe"
+    else:
+        tm = re.search(r"toi da\s*:?\s*(\d{1,2})\s*(?:nguoi|ng)\b", n)
+        if tm:
+            out["capacity"] = f"{tm.group(1)} Ng"
 
     # ---- diện tích / tầng
     am = _AREA_RE.search(n)
@@ -477,11 +712,17 @@ def parse_listing_text(text: str) -> dict:
     if fm:
         out["floor"] = fm.group(1)
 
-    # ---- xe điện / thú cưng
-    if re.search(r"\bxe dien\b|\bsac xe\b|\bco sac\b", n):
+    # ---- xe điện / thú cưng (ưu tiên PHỦ ĐỊNH: 'không xe điện' -> 0, không phải 1)
+    if re.search(r"\bkhong (xe dien|sac xe|co sac)\b|\bxe dien\s*:?\s*khong\b", n):
+        out["ev_support"] = 0
+    elif re.search(r"\bxe dien\b|\bsac xe\b|\bco sac\b", n):
         out["ev_support"] = 1
     if re.search(r"\bkhong (pet|nuoi)\b|\bcam pet\b", n):
         out["pet_policy"] = "Không nuôi"
+    elif re.search(r"\bthu cung\b", n):
+        tc = re.search(r"\bthu cung\s*:?\s*(khong|co)\b", n)
+        out["pet_policy"] = ("Không nuôi" if tc and tc.group(1) == "khong"
+                             else "Cho nuôi (chó/mèo)")
     elif re.search(r"\b(pet|meo|cho nuoi|nuoi)\b", n):
         out["pet_policy"] = "Cho nuôi (chó/mèo)"
 
@@ -506,84 +747,44 @@ def parse_listing_text(text: str) -> dict:
     if district_disp:
         out["district"] = district_disp
 
-    # ---- dòng địa chỉ: số nhà + tên đường
-    house, street = "", ""
-    candidates = []
-    for line in raw.splitlines():
-        m = _HOUSE_NUM_RE.match(line)
-        if m:
-            candidates.append((m.group(1), m.group(2)))
-    if not candidates:
-        # cả text là 1 dòng: tìm pattern số nhà + chữ (lấy đến hết dòng, cắt sau)
-        m = re.search(r"(\d+[A-Za-z]?(?:/\d+[A-Za-z0-9]?)*)\s+([A-Za-zÀ-ỹ].+)", raw)
-        if m:
-            candidates.append((m.group(1), m.group(2)))
-
-    _WARD_RAW_RE = re.compile(r"[Pp]\.?\s*\d{1,2}\b|[Pp]h[àa]ng\s+\d{1,2}\b")
-    _STOP_RAW_RE = re.compile(r"\b[Gg]i[áa]\b|\b[Tt]hu[êe]\b|\b[Ss][ĐD][Tt]\b|li[êe]n h[ệe]|\b[Cc]h[íi]nh ch[ủu]\b")
-    _QNUM_RE = re.compile(r"^[Qq]\.?\d{1,2}$")
-
-    for hnum, rest in candidates:
-        rest = re.sub(r"(?:0|\+84)[\d\s.\-]{8,13}\d", " ", rest)
-        rest = re.sub(r"\b\d+(?:[.,]\d+)?\s*(?:tr|trieu|triệu|nghin|nghìn|k)\b", " ", rest)
-        rest = re.sub(r"\b\d{6,9}\b", " ", rest)
-
-        # cắt street tại vị trí XUẤT HIỆN ĐẦU TIÊN của: phường / quận / từ khóa kết thúc
-        cut = len(rest)
-        wm2 = _WARD_RAW_RE.search(rest)
-        if wm2:
-            cut = min(cut, wm2.start())
-        sm = _STOP_RAW_RE.search(rest)
-        if sm:
-            cut = min(cut, sm.start())
-        tokens = rest.split()
-        # vị trí ký tự bắt đầu của từng token trong rest
-        pos = 0
-        starts = []
-        for tok in tokens:
-            idx = rest.find(tok, pos)
-            starts.append(idx if idx >= 0 else pos)
-            pos = (idx if idx >= 0 else pos) + len(tok)
-        for i, tok in enumerate(tokens):
-            one = norm(tok)
-            two = norm(" ".join(tokens[i:i + 2]))
-            hit = any(one == pat or two == pat or two.startswith(pat + " ")
-                      for pat, _n in _KNOWN_DISTRICTS)
-            if one in _KNOWN_DISTRICT_ABBR or _QNUM_RE.match(tok):
-                hit = True
-            if hit and 0 <= starts[i] < cut:
-                cut = min(cut, starts[i])
-
-        street_cand = collapse_space(rest[:cut].strip(" ,.;:-"))
-        # KHÔNG strip tiền tố "đường" - "Đường Số 30", "Đường Mới" là tên đường hợp lệ
-        street_cand = re.sub(r"^(cho thue|cho thuê|can ho|căn hộ|phong|phòng|nha|nhà)\s+",
-                             "", street_cand, flags=re.IGNORECASE)
-        words = norm(street_cand).split()
-        if not street_cand or not words or len(words) < 2:
-            continue
-        if words[0] in _NON_STREET_HEADS:
-            continue
-        house, street = hnum, street_cand
-        break
-
-    if house:
+    # ---- dòng địa chỉ: số nhà + tên đường (QUÉT TỪNG DÒNG + CHẤM ĐIỂM)
+    score, house, street, ward_name = _extract_address(lines)
+    if score >= 2:
         out["house_number"], out["street"] = house, street
-    # nếu chưa có phường/quận và dòng địa chỉ còn sót -> thử tách từ street
-    if house:
-        out["house_number"], out["street"] = house, street
-    if not out["ward"] and street:
-        wm = _WARD_RE.search(norm(street))
-        if wm:
-            out["ward"] = f"P. {wm.group(1) or wm.group(2)}"
-    if not out["district"] and street:
-        np_ = norm(street)
-        for pat, name in _KNOWN_DISTRICTS:
-            if re.search(rf"\b{pat}\b", np_):
-                out["district"] = name
-                break
+        if not out["ward"] and ward_name:
+            out["ward"] = (ward_name if norm(ward_name).startswith(("p ", "p."))
+                           else f"Phường {ward_name}")
+        if not out["ward"]:
+            wm = _WARD_RE.search(norm(street))
+            if wm:
+                out["ward"] = f"P. {wm.group(1) or wm.group(2)}"
+        if not out["district"]:
+            np_ = norm(street)
+            for pat, name in _KNOWN_DISTRICTS:
+                if re.search(rf"\b{pat}\b", np_):
+                    out["district"] = name
+                    break
 
-    # ---- chi phí dịch vụ / giờ giấc / tiện ích tòa nhà
-    out.update(_parse_fee_hours_amenities(raw, n))
+    # ---- mã phòng: 'Mã phòng: 403' / 'Phòng 302' / 'P402 (...)' / 'Sắp trống: 402'
+    out["room_code"] = ""
+    for line in lines:
+        ln = norm(line)
+        m = re.match(r"^p(\d{3,4})\b", ln) or re.search(
+            r"\b(?:ma(?:\s*phong)?|phong(?:\s*trong)?|sap trong|trong)\s*:?\s*"
+            r"(p?[a-z]?\d{3,4})\b", ln)
+        if m:
+            code = m.group(1)
+            if re.fullmatch(r"p\d{3,4}", code):
+                code = code[1:]
+            elif not code.isdigit():
+                code = code.upper()
+            out["room_code"] = code
+            break
+    if not out["room_code"] and out["_rooms"]:
+        out["room_code"] = out["_rooms"][0]["room_code"]   # tin nhiều phòng: lấy mã đầu
+
+    # ---- chi phí dịch vụ / giờ giấc / tiện ích tòa nhà (theo TỪNG DÒNG)
+    out.update(_parse_fee_hours_amenities(lines, n))
 
     # ---- ghi chú: phần text còn lại (nguyên văn, không phân tích được)
     out["notes"] = collapse_space(strip_emoji(str(text)))[:500]

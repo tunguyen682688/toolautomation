@@ -1033,6 +1033,11 @@ class RoomEditForm(QDialog):
                     w.setText(v)
                 elif isinstance(w, QComboBox):
                     w.setCurrentText(v)
+        # mã phòng: chỉ điền khi ô còn trống (không ghi đè mã người dùng đã gõ)
+        rc = str(p.get("room_code") or "").strip()
+        if rc and "room_code" in self.ed and isinstance(self.ed["room_code"], QLineEdit) \
+                and not self.ed["room_code"].text().strip():
+            self.ed["room_code"].setText(rc)
         for k in ("price", "deposit"):
             v = int(p.get(k) or 0)
             if v and isinstance(self.ed[k], QLineEdit):

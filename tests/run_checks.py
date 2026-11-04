@@ -859,6 +859,90 @@ def main():
 
     check("27. Nhập giá nhanh: 5tr/5 triệu/5trieu + hiển thị đọc bằng chữ", t27_quick_money_input)
 
+    # ---------------------------------------------------------------- parser mẫu tin Zalo THẬT
+    def t28_real_zalo_samples():
+        """Parser trên mẫu tin Zalo thật: địa chỉ + mã phòng + giá/cọc/phí/giờ/tiện ích."""
+        # --- m2: ngày tháng không được nhận làm địa chỉ; giá '8.700.000' + giờ giấc
+        m2 = ("CẬP NHẬT PHÒNG TRỐNG 3/11\nM8/11 TRỐNG\n\n"
+              "Dia chi: 135/37/70 Nguyen Huu Canh, phuong Thanh My Tay\n"
+              "Phong 302- 2pn- cua so lau 3\nChinh sach:\n- Dien: 4k\n- Nuoc: 100k/ng\n"
+              "- Phi DV:200k/p\n- Xe: free 2\n- Thang bo\nPhi hoa hong + coc:\n"
+              "+ HĐ 6th coc 1th- HH 50%\nGio giac tu do, khong chung chu, rong 35m2\n"
+              "Troi san o lien\nGia chot : 8.700.000 vnd")
+        p = tu.parse_listing_text(m2)
+        assert_true(p["house_number"] == "135/37/70"
+                    and "Nguyen Huu Canh" in p["street"],
+                    f"m2: sai địa chỉ {p['house_number']!r}/{p['street']!r}")
+        assert_true(p["ward"] == "Phường Thanh My Tay" and p["district"] == "Q. Bình Thạnh",
+                    f"m2: sai phường/quận {p['ward']!r}/{p['district']!r}")
+        assert_true(p["room_code"] == "302", f"m2: sai mã phòng {p['room_code']!r}")
+        assert_true(p["price"] == 8_700_000, f"m2: sai giá {p['price']}")
+        assert_true("dien" in tu.norm(p["service_fee"]) and "nuoc" in tu.norm(p["service_fee"]),
+                    f"m2: sai phí DV {p['service_fee']!r}")
+        assert_true("gio giac tu do" in tu.norm(p["access_hours"]),
+                    f"m2: sai giờ giấc {p['access_hours']!r}")
+
+        # --- m5: XVNT -> Xô Viết Nghệ Tĩnh; '5.200 K' = 5,2tr; '26/11' là NGÀY không phải số nhà
+        m5 = ("26/11 trong\n\n"
+              "Dia chi : 685/25/3 XVNT, P26, Binh Thanh ( gan BXMD, gan hutech Ung Van Khiem)\n"
+              "P402 (gac cua so lau 4 - thang may) : 5.200 K\n\n"
+              "- Co Thang may\n- Camera 24/24\n- Gio giac tu do, khong chung chủ\n"
+              "- Giat phoi free\n- Cho nuoi PET\n\n"
+              "Phi dich vien\n- Dien  4.000d/Kwh\n- Nuoc 100.000d/nguoi\n"
+              "- DV (wifi, thang may...) 150.000d/phong")
+        p = tu.parse_listing_text(m5)
+        assert_true(p["house_number"] == "685/25/3"
+                    and p["street"] == "Xô Viết Nghệ Tĩnh",
+                    f"m5: sai địa chỉ {p['house_number']!r}/{p['street']!r}")
+        assert_true(p["room_code"] == "402", f"m5: sai mã phòng {p['room_code']!r}")
+        assert_true(p["price"] == 5_200_000, f"m5: '5.200 K' phải = 5.200.000, got {p['price']}")
+        assert_true("gio giac tu do" in tu.norm(p["access_hours"]),
+                    f"m5: sai giờ giấc {p['access_hours']!r}")
+        assert_true("Thang máy" in p["amenities"] and "Camera" in p["amenities"],
+                    f"m5: sai tiện ích {p['amenities']!r}")
+        assert_true(p["pet_policy"].startswith("Cho nuôi"), f"m5: sai thú cưng {p['pet_policy']!r}")
+
+        # --- m10: tin NHIỀU PHÒNG -> 6 phòng + giá từng cặp
+        p = tu.parse_listing_text("Ma 501_502: 6.400.000\n103_104: 7.300.000\n"
+                                  "Ma 101_102: 8.300.000")
+        codes = [r["room_code"] for r in p["_rooms"]]
+        assert_true(codes == ["501", "502", "103", "104", "101", "102"],
+                    f"m10: sai danh sách phòng {codes}")
+        assert_true(p["_rooms"][2]["price"] == 7_300_000
+                    and p["room_code"] == "501" and p["price"] == 6_400_000,
+                    f"m10: sai mã/giá {p['room_code']!r}/{p['price']}")
+        assert_true(not p["owner_phone"], f"m10: '103' không được nhận là SĐT {p['owner_phone']!r}")
+
+        # --- m4: '5tr5' = 5,5tr + SĐT thật + 'Ma phong: 103'
+        p = tu.parse_listing_text(
+            "DIA CHI:  347/6/27 CHU VAN AN, P12, BINH THANH\n"
+            "Tien nghi: Gio giac tu do, Khoa cong van tay, Bao ve, Thang may\n"
+            "Phi dich vu\nDien: 3,8k/kwh\nNuoc: 100k/nguoi\nDich vu: 200k/phong\n"
+            "0967 673 637 (Tien) - Quan ly toa nha Ma phong: 103\nGia: 5tr5")
+        assert_true(p["house_number"] == "347/6/27"
+                    and "chu van an" in tu.norm(p["street"]),
+                    f"m4: sai địa chỉ {p['house_number']!r}/{p['street']!r}")
+        assert_true(p["room_code"] == "103" and p["price"] == 5_500_000,
+                    f"m4: sai mã/giá {p['room_code']!r}/{p['price']}")
+        assert_true(p["owner_phone"] == "0967673637", f"m4: sai SĐT {p['owner_phone']!r}")
+
+        # --- quick_add: autofill đưa mã phòng + gợi ý tin nhiều phòng (không tự tạo 6 phòng)
+        import quick_add as qa
+        f2 = qa.autofill_from_text(m2)
+        assert_true(f2.get("room_code") == "302" and f2.get("price") == 8_700_000,
+                    f"autofill m2 sai: {f2.get('room_code')!r}/{f2.get('price')}")
+        f10 = qa.autofill_from_text("Ma 501_502: 6.400.000\n103_104: 7.300.000\n"
+                                    "Ma 101_102: 8.300.000")
+        assert_true(f10.get("room_code") == "501"
+                    and f10.get("_rooms") == ["501", "502", "103", "104", "101", "102"],
+                    f"autofill m10 sai: {f10.get('room_code')!r}/{f10.get('_rooms')}")
+        print(f"    -> m2 {f2['house_number']} {f2.get('street')} | "
+              f"m10 {len(f10['_rooms'])} phòng (điền mã {f10['room_code']}) · "
+              f"m4 price={tu.money_words(5_500_000)}")
+
+    check("28. Mẫu tin Zalo thật: địa chỉ + mã phòng + giá/cọc/phí/giờ/tiện ích + autofill",
+          t28_real_zalo_samples)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)

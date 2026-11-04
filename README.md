@@ -20,7 +20,7 @@ mà không bao giờ ảnh hưởng dữ liệu thật (xem mục 1.3).
 | [2. Cấu hình Google API](#2-cấu-hình-google-api-chi-tiết-có-thể-làm-sau) | 4 bước, các sheet quản lý, giới hạn quota |
 | [3. Phím tắt](#3-phím-tắt) | Bàn phím tắt |
 | [4. Dữ liệu mẫu kiểm thử](#4-dữ-liệu-mẫu-kiểm-thử) | 2 file Excel mẫu |
-| [5. Bộ kiểm thử](#5-bộ-kiểm-thử-chạy-được-ngay-không-cần-mạng) | 21 backend + 5 phân biệt 3 trạng thái + 10 giao diện + selftest + 10 tình huống bắt buộc |
+| [5. Bộ kiểm thử](#5-bộ-kiểm-thử-chạy-được-ngay-không-cần-mạng) | 28 backend + 5 phân biệt 3 trạng thái + 12 giao diện + selftest + 10 tình huống bắt buộc |
 | [6. Nguyên tắc quan trọng](#6-nguyên-tắc-quan-trọng-của-phần-mềm) | Offline-first, chống trùng, đồng bộ an toàn |
 | [7. Xử lý sự cố](#7-xử-lý-sự-cố-thường-gặp) | Bảng lỗi thường gặp |
 | [8. Build bản Windows (.exe)](#8-build-bản-windows-exe-cho-người-dùng-cuối) | Đóng gói, chạy trên máy khác, selftest |
@@ -132,7 +132,7 @@ toolautomation/
 ├── start.bat             ← tạo venv + cài thư viện + chạy (hỗ trợ --env)
 ├── build.bat             ← build bản Windows (.exe) + selftest
 ├── KhoPhongCanHo.spec    ← cấu hình PyInstaller
-└── tests/                ← bộ kiểm thử (21 + 5 + 10 tình huống)
+└── tests/                ← bộ kiểm thử (28 + 5 + 12 tình huống)
 ```
 
 ---
@@ -220,12 +220,12 @@ Lần chạy đầu nếu DB trống, chương trình sẽ **đề nghị nhập
 
 ## 5. Bộ kiểm thử (chạy được ngay, không cần mạng)
 
-### 5.1. Kiểm thử backend — 27 tình huống
+### 5.1. Kiểm thử backend — 28 tình huống
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'     # console Windows cp1252 -> tránh lỗi hiển thị UTF-8
 python tests\run_checks.py
-# kỳ vọng: KẾT QUẢ: 27/27 PASS
+# kỳ vọng: KẾT QUẢ: 28/28 PASS
 ```
 
 ### 5.2. Kiểm thử phân biệt 3 trạng thái (Chưa biết / Có / Không) — 5 tình huống
@@ -396,6 +396,7 @@ chi tiết ghi vào `data\<env>\selftest_result.txt`.
 
 | Ngày | Thay đổi |
 |---|---|
+| 2026-11-04 | **🤖 PARSER TIN NHẮN ZALO VIẾT LẠI THEO TỪNG DÒNG — test trên 11 mẫu tin THẬT.** Lỗi gốc cũ: `collapse_space()` gộp hết xuống dòng thành 1 khối → địa chỉ/chi phí lẫn rác (vd lấy cả "CẬP NHẬT PHÒNG TRỐNG 3/11 M8/11…" làm tên đường). Viết lại `text_utils.py`: **① Địa chỉ chấm điểm theo dòng** (anchor "địa chỉ/dự án" +4, phường +2, quận +2, viết tắt đường +2, số nhà có `/` +1; <2 điểm bỏ) — dòng ngày tháng (`3/11`, `M8/11 TRỐNG`) không còn bị nhận nhầm; cắt tên đường theo chunk dấu phẩy + token mã phòng (`T23`) + mở rộng viết tắt (`XVNT → Xô Viết Nghệ Tĩnh`); "Thanh Mỹ Tây" → Q. Bình Thạnh. **② Mã phòng**: `Mã phòng: 403` / `Phòng 302` / `P402(...)` / `Sắp trống: 402` / `Mã T202`; **tin NHIỀU PHÒNG** `Mã 501_502: 6.400.000` → list `_rooms` (mẫu thật 6 phòng đúng giá từng cặp) — Tạo nhanh điền **mã đầu** + dòng gợi ý "tin có 6 phòng: … (bấm Sửa phòng để tách)", **không tự tạo 6 phòng**. **③ Tiền**: `4tr5` (=4,5tr), `5.200 K` (=5,2tr), `8.700.000`, "giảm còn X" = giá hiện tại, bỏ "cọc 3tr" khỏi giá; **cọc** = tiền thật hoặc `cọc 1th/1.5 tháng` × giá; SĐT validate (chặn `00000103` làm mất giá). **④ Phí DV / giờ giấc / tiện ích theo TỪNG DÒNG**: dòng (hoặc cụm `,;.`) có từ khoá phí + số tiền → nối ` · `; giờ ưu tiên "giờ giấc/ra vào tự do" rồi mới "24/7" (tránh "Camera 24/24"); tiện ích dedupe ("Khóa vân tay" không liệt kê "Vân tay" 2 lần). `room_code` autofill vào Tạo nhanh + form Sửa (chỉ khi ô trống). Test: backend **28/28** (t28: 4 mẫu Zalo thật m2/m4/m5/m10 + autofill), UI **12/12**, tri-state **5/5**, selftest **OK**. |
 | 2026-11-04 | **🏠 MÃ PHÒNG CHỈ UNIQUE THEO TÒA + 3 TRƯỜNG MỚI (phí dịch vụ / giờ giấc / tiện ích) + NHẬP GIÁ NHANH.** ① **Bỏ cảnh báo "trùng mã phòng ở tòa khác"** (L4 trong `duplicate_checker.py`): 2 tòa khác nhau cùng có mã A1 là hoàn toàn hợp lệ — chỉ chặn trùng trong cùng tòa (`UNIQUE(building_id, unit_key)` giữ nguyên); test 5b đổi theo hành vi mới. ② **3 trường mới cho phòng**: `service_fee` (Chi phí dịch vụ: điện/nước/wifi/giữ xe...), `access_hours` (Giờ ra vào/giới nghiêm), `amenities` (Tiện ích tòa nhà: thang máy/camera/điều hòa...) — thêm cột DB (tự `ALTER TABLE` cho DB cũ), nhóm **"9. Chi phí dịch vụ, giờ giấc & tiện ích tòa nhà"** trong form Sửa, cột Excel mới **thêm CUỐI bảng** (công thức COUNTIF gốc giữ nguyên), import Excel nhận qua alias; **tách tự động từ tin Zalo** (`_parse_fee_hours_amenities`: đoạn có từ khoá + số tiền → phí DV; "giờ ra vào/24/7/6h-23h" → giờ; gom từ khoá tiện ích toàn tin) — autofill vào form Sửa + Tạo nhanh (gộp cùng cọc vốn bị bỏ), `search_norm` chứa cả 3 trường → gõ "thang máy" tìm ra phòng; "Lưu & thêm tiếp" giữ nguyên 3 trường (nhập nhiều phòng cùng tòa). ③ **Nhập giá nhanh**: ô Giá thuê/Tiền cọc trong form Sửa có ô chữ xanh hiện **trực tiếp khi gõ** `= 5.000.000 · 5 triệu` (chấp nhận `7.5tr`, `5 triệu`, `5trieu`, `7,5tr`... — helper mới `text_utils.money_words()`); không nhận diện được thì hiện ⚠ cam. Test: backend **27/27** (t26, t27 mới), UI **12/12**, tri-state **5/5**, selftest **14/14**. |
 | 2026-11-03 | **📂 ĐỔI THƯ MỤC LƯU TRỮ (DB + logs + backup + cache) — tab Cài đặt → Chung.** Ô \"Thư mục dữ liệu\" có nút **Chọn...** chọn thư mục mới; bấm Lưu sẽ **copy toàn bộ DB (kèm WAL/SHM), logs/, backup/, cache/ sang chỗ mới**, thư mục cũ **giữ nguyên làm backup**. App chạy ngay ở chỗ mới (không cần khởi động lại) nhờ `Database.reconnect()`; `LOG_DIR`, `CACHE_DIR` tự tính theo `db_path` setting lúc runtime (`config.get_log_dir()`, `config.get_cache_dir()`). Test t24: backend **24/24**, UI **12/12**, selftest **14/14**. |
 | 2026-11-02 | **⚡ TẠO NHANH TỪ ZALO: copy ảnh phòng -> dán -> Enter là có phòng (không cần bấm "Thêm phòng" rồi mò file Downloads).** Module mới `quick_add.py` + nút **"⚡ Tạo nhanh từ Zalo"** trên thanh lọc trang Phòng (kèm nút 🎯 Yêu cầu khách). Dialog **tự đọc clipboard ngay khi mở** và **tự đọc lại khi quay lại app (Alt-Tab)**: ảnh copy từ Zalo (đường dẫn file CF_HDROP **hoặc** ảnh bitmap → lưu PNG tạm) hiện xem trước + đếm số ảnh; **chữ trong tin nhắn** (nếu có) tự tách địa chỉ / giá / dạng phòng / tầng / diện tích / SĐT để điền sẵn **chỉ vào ô còn trống** (không ghi đè; chữ không giống tin đăng → không tự điền gì; bỏ `notes` vì parser gán notes = nguyên văn). **Check LIVE 3 lớp (debounce 250ms)**: 🏢 **TÒA NHÀ đã có chưa** (tự liên kết / tạo mới, kèm % tương đồng nếu nghi trùng) · 🧱 **LOẠI PHÒNG đó đã có trong tòa chưa** (liệt kê mã phòng đang có: "Tòa này đã có 1 phòng Studio: S-77" hoặc "Tòa đã có nhưng CHƯA có phòng loại Penthouse") · ⛔ **trùng số căn/mã** → chặn Lưu + nút "📂 Mở bản ghi trùng". **1 Enter = Lưu & mở phòng** (nút Lưu tự tắt khi thiếu địa chỉ/khóa nhận diện — không popup), lưu xong ảnh tự `import_files` vào **thư mục quy ước** của phòng rồi mở panel chi tiết + hiện "✅ Đã tạo … — N ảnh đã vào thư mục quy ước" ở thanh trạng thái; Alt-Tab về app sau khi copy ảnh tiếp cũng tự nạp. Tách 3 hàm thuần để test không cần Qt: `norm_price()` (rỗng → **NULL = Chưa biết**, không ép 0), `autofill_from_text()`, `type_in_building()`. Test: backend **23/23** (t23 mới) + UI **12/12** (check "dán ảnh → lưu phòng + ảnh vào thư mục + check tòa/loại phòng") + selftest **14/14** (3 check mới: có nút, tách tin nhắn, check loại phòng — xác nhận module có trong bản build). |

@@ -71,8 +71,8 @@ def autofill_from_text(text: str) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     # KHÔNG nhận `notes`: parse_listing_text gán notes = nguyên văn text ->
     # điền vào ô Ghi chú sẽ bị thừa/đụng dữ liệu người dùng đã gõ.
-    for k in ("house_number", "street", "ward", "district", "room_type",
-              "area", "floor", "capacity", "owner_phone",
+    for k in ("house_number", "street", "ward", "district", "room_code",
+              "room_type", "area", "floor", "capacity", "owner_phone",
               "service_fee", "access_hours", "amenities"):
         v = str(p.get(k) or "").strip()
         if v:
@@ -85,6 +85,11 @@ def autofill_from_text(text: str) -> Dict[str, Any]:
         out["ev_support"] = 1
     if p.get("pet_policy"):
         out["pet_policy"] = p["pet_policy"]
+    # tin NHIỀU PHÒNG (vd 'Mã 501_502: 6.400.000') -> chỉ gợi ý, không tự tạo
+    rooms = [str(r.get("room_code") or "") for r in (p.get("_rooms") or [])
+             if r.get("room_code")]
+    if len(rooms) >= 2:
+        out["_rooms"] = rooms
     return out
 
 
@@ -366,7 +371,8 @@ class QuickAddDialog(QDialog):
 
     def _apply_autofill(self, fields: Dict[str, Any]):
         labels = {"house_number": "số nhà", "street": "đường", "ward": "phường",
-                  "district": "quận", "room_type": "dạng phòng", "price": "giá",
+                  "district": "quận", "room_code": "mã phòng",
+                  "room_type": "dạng phòng", "price": "giá",
                   "area": "diện tích", "floor": "tầng", "capacity": "sức chứa",
                   "owner_phone": "SĐT chủ", "notes": "ghi chú",
                   "deposit": "cọc", "pet_policy": "thú cưng",
@@ -390,8 +396,14 @@ class QuickAddDialog(QDialog):
                 else:
                     w.setText(str(v))
                 filled.append(labels.get(k, k))
-        if filled:
-            self.lbl_autofill.setText("✨ Đã tự điền từ tin nhắn: " + ", ".join(filled))
+        if filled or fields.get("_rooms"):
+            msg = "✨ Đã tự điền từ tin nhắn: " + ", ".join(filled) if filled else "✨ Tin nhắn"
+            rooms = [r for r in fields.get("_rooms") or [] if r]
+            if len(rooms) >= 2:
+                # tin nhiều phòng: điền MÃ ĐẦU, nhắc vào Sửa phòng để tách từng phòng
+                msg += (f" · tin có <b>{len(rooms)} phòng</b>: "
+                        f"{', '.join(rooms)} (bấm Sửa phòng để tách)")
+            self.lbl_autofill.setText(msg)
             self.lbl_autofill.show()
 
     def _refresh_images(self):

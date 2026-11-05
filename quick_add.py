@@ -238,8 +238,8 @@ class QuickAddDialog(QDialog):
         add(0, 1, "street", "Đường", "Nguyễn Thượng Hiền")
         add(1, 0, "ward", "Phường", "P. 13")
         add(1, 1, "district", "Quận", "Q. Bình Thạnh")
-        add(2, 0, "unit_code", "Số căn", "79/16  (khuyến nghị)")
-        add(2, 1, "room_code", "Mã phòng", "P-86")
+        # MÃ PHÒNG = khoá chống trùng DUY NHẤT (đã loại bỏ Số căn khỏi UI)
+        add(2, 0, "room_code", "Mã phòng", "403  (bắt buộc - khoá chống trùng)", )
         add(3, 0, "room_type", "Dạng phòng", "Studio / 1 PN...", combo=True)
         add(3, 1, "price", "Giá thuê", "7tr  (để trống = Chưa biết)")
         add(4, 0, "area", "Diện tích", "45m2")
@@ -450,7 +450,6 @@ class QuickAddDialog(QDialog):
             "street": g("street"),
             "ward": g("ward"),
             "district": g("district"),
-            "unit_code": g("unit_code"),
             "room_code": g("room_code"),
             "room_type": str(self.ed["room_type"].currentText() or "").strip(),
             "price": norm_price(g("price")),          # rỗng -> None (Chưa biết)
@@ -493,7 +492,7 @@ class QuickAddDialog(QDialog):
         """Check LIVE: tòa nhà đã có? · loại phòng đã có trong tòa? · trùng mã?"""
         p = self.payload()
         has_addr = bool(p.get("house_number") or p.get("street"))
-        has_id = bool(p.get("unit_code")) or tu.valid_room_code(p.get("room_code"))
+        has_id = tu.valid_room_code(p.get("room_code"))
         self._dup_id = ""
         self.btn_open_dup.hide()
 
@@ -505,9 +504,9 @@ class QuickAddDialog(QDialog):
             return
         if not has_id:
             self._set_banner(
-                theme.c("orange"), "Thiếu khoá nhận diện phòng",
-                "Nhập <b>SỐ CĂN</b> (khuyến nghị) hoặc <b>MÃ PHÒNG</b> có chữ số "
-                "để chống trùng - chương trình không tự suy đoán.")
+                theme.c("orange"), "Thiếu MÃ PHÒNG",
+                "<b>Mã phòng</b> có chữ số là khoá chống trùng duy nhất "
+                "- chương trình không tự suy đoán.")
             self.btn_save.setEnabled(False)
             return
         try:
@@ -545,8 +544,7 @@ class QuickAddDialog(QDialog):
 
     def _save(self, *_):
         p = self.payload()
-        if not (p.get("house_number") or p.get("street")) or not (
-                p.get("unit_code") or tu.valid_room_code(p.get("room_code"))):
+        if not (p.get("house_number") or p.get("street")) or not tu.valid_room_code(p.get("room_code")):
             self._run_check()
             return
         try:

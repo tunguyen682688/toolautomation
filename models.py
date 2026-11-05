@@ -390,7 +390,6 @@ ROOM_TABLE_COLUMNS: List[Tuple[str, str, int]] = [
     ("street",       "Tên đường",       150),   # cột co giãn (stretch)
     ("ward",         "Phường",           70),
     ("district",     "Quận / Khu vực",  105),
-    ("unit_code",    "Số căn",           85),
     ("floor",        "Tầng",             55),
     ("room_type",    "Dạng phòng",      105),
     ("price",        "Giá thuê",        105),

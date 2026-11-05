@@ -539,8 +539,8 @@ class RoomEditForm(QDialog):
 
         # ---------- nhóm 2: Nhận diện ----------
         def _g2(f):
-            self.ed["room_code"] = self._line("Ví dụ: P-86")
-            self.ed["unit_code"] = self._line("Số căn thực tế - khoá chống trùng")
+            # MÃ PHÒNG = khoá chống trùng DUY NHẤT (đã loại bỏ Số căn khỏi UI)
+            self.ed["room_code"] = self._line("Bắt buộc - khoá chống trùng (vd: P-86)")
             self.ed["floor"], self.ed["floor_unknown"] = self._line_with_unknown(
                 "Ví dụ: 3, Lầu 2")
             self.ed["area"], self.ed["area_unknown"] = self._line_with_unknown(
@@ -549,9 +549,7 @@ class RoomEditForm(QDialog):
             self.ed["room_type"].setEditable(True)
             self.ed["room_type"].addItems(ROOM_TYPES)
             f.addWidget(QLabel("Mã phòng:"), 0, 0)
-            f.addWidget(self.ed["room_code"], 0, 1)
-            f.addWidget(QLabel("Số căn:"), 0, 2)
-            f.addWidget(self.ed["unit_code"], 0, 3)
+            f.addWidget(self.ed["room_code"], 0, 1, 1, 5)
             f.addWidget(QLabel("Tầng:"), 1, 0)
             f.addWidget(self.ed["floor"], 1, 1)
             f.addWidget(self.ed["floor_unknown"], 1, 2)
@@ -833,7 +831,7 @@ class RoomEditForm(QDialog):
         self.ed["street"].setCompleter(comp)
 
         # debounce kiểm tra trùng khi thay đổi khoá nhận diện
-        for key in ("house_number", "street", "ward", "district", "unit_code", "room_code"):
+        for key in ("house_number", "street", "ward", "district", "room_code"):
             w = self.ed[key]
             if isinstance(w, QLineEdit):
                 w.textChanged.connect(self._schedule_check)
@@ -1177,7 +1175,6 @@ class RoomEditForm(QDialog):
             "ward": txt("ward"),
             "district": txt("district"),
             "room_code": txt("room_code"),
-            "unit_code": txt("unit_code"),
             "floor": txt("floor"),
             "room_type": self.ed["room_type"].currentText().strip(),
             "price": tu.normalize_price(txt("price")) if txt("price") else None,
@@ -1207,10 +1204,10 @@ class RoomEditForm(QDialog):
             QMessageBox_Warning(self, "Thiếu dữ liệu",
                                 "Cần nhập ít nhất SỐ NHÀ hoặc TÊN ĐƯỜNG để xác định tòa nhà.")
             return
-        if not payload.get("unit_code") and not tu.valid_room_code(payload.get("room_code")):
-            QMessageBox_Warning(self, "Thiếu khoá nhận diện",
-                                "Cần SỐ CĂN (khuyến nghị) hoặc MÃ PHÒNG hợp lệ (có chữ số)\n"
-                                "để chống trùng - chương trình không tự suy đoán.")
+        if not tu.valid_room_code(payload.get("room_code")):
+            QMessageBox_Warning(self, "Thiếu mã phòng",
+                                "Cần MÃ PHÒNG hợp lệ (có chữ số) - mã phòng là khoá\n"
+                                "chống trùng duy nhất, chương trình không tự suy đoán.")
             return
 
         actor = self.mgr.settings.get("user_name") or "Admin"
@@ -1268,14 +1265,13 @@ class RoomEditForm(QDialog):
                 elif isinstance(w, QComboBox):
                     w.setCurrentText(str(v or ""))
             self.ed["room_code"].clear()
-            self.ed["unit_code"].clear()
             self.ed["floor"].clear()
             self.ed["drive_link"].clear()
             self.ed["notes"].clear()
             self.img_upload.set_paths([])   # phòng nhập kế bắt đầu với danh sách ảnh sạch
             self.ed["room_code"].setFocus()
             self.banner_label.setText(f"<span style='color:{theme.c('ok')};'>✓ Đã lưu phòng "
-                                      f"<b>{payload.get('room_code') or payload.get('unit_code')}</b> "
+                                      f"<b>{payload.get('room_code')}</b> "
                                       + (f"· 📷 {n_img_saved} ảnh đã vào thư mục quy ước "
                                          if n_img_saved else "")
                                       + "- tiếp tục nhập phòng kế.</span>")

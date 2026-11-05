@@ -118,9 +118,9 @@ def main() -> int:
         dlg = RoomEditForm(mgr, None, win)
         dlg.ed["house_number"].setText("313")
         dlg.ed["street"].setText("Đường Smoke Test")
-        dlg.ed["unit_code"].setText("S-01")
         dlg.ed["room_code"].setText("P-313")
         dlg.ed["price"].setText("6500000")
+        assert "unit_code" not in dlg.ed, "Ô Số căn phải đã bị loại khỏi form"
         dlg._run_check()
         app.processEvents()
         assert dlg.banner.isVisible() or True
@@ -130,11 +130,11 @@ def main() -> int:
         dlg._save()
         app.processEvents()
         assert mgr.stats()["total"] == before + 1, "Form không lưu được phòng mới"
-        # lưu lại chính nó -> bị chặn trùng
+        # lưu lại chính nó (cùng MÃ PHÒNG) -> bị chặn trùng
         dlg2 = RoomEditForm(mgr, None, win)
         dlg2.ed["house_number"].setText("313")
         dlg2.ed["street"].setText("Đường Smoke Test")
-        dlg2.ed["unit_code"].setText("S-01")
+        dlg2.ed["room_code"].setText("P-313")
         # check đồng bộ nhưng thỉnh thoảng vấp lock SQLite ngắn (thread nền) ->
         # thử lại vài lần trước khi kết luận
         for _ in range(6):
@@ -485,10 +485,10 @@ def main() -> int:
             f"Không đọc được ảnh clipboard: {dlg.img_paths}"
         assert not dlg.btn_save.isEnabled(), "Nút Lưu phải tắt khi thiếu dữ liệu"
 
-        # 1 Enter là xong: địa chỉ + số căn + loại phòng -> Lưu
+        # 1 Enter là xong: địa chỉ + mã phòng + loại phòng -> Lưu
         dlg.ed["house_number"].setText("317")
         dlg.ed["street"].setText("Đường Quick Add")
-        dlg.ed["unit_code"].setText("S-77")
+        dlg.ed["room_code"].setText("S-77")
         dlg.ed["room_type"].setCurrentText("Studio")
         dlg._run_check()
         app.processEvents()
@@ -509,7 +509,7 @@ def main() -> int:
         dlg2 = QuickAddDialog(mgr, win)
         dlg2.ed["house_number"].setText("317")
         dlg2.ed["street"].setText("Đường Quick Add")
-        dlg2.ed["unit_code"].setText("S-78")
+        dlg2.ed["room_code"].setText("S-78")
         dlg2.ed["room_type"].setCurrentText("Studio")
         dlg2._run_check()
         app.processEvents()
@@ -517,12 +517,12 @@ def main() -> int:
         assert "tự liên kết" in b2, f"Không nhận ra tòa đã có: {b2[:200]}"
         assert "1 phòng Studio" in b2 and "S-77" in b2, f"Không liệt kê loại phòng đã có: {b2[:240]}"
 
-        # trùng số căn -> CHẶN Lưu + nút mở bản ghi cũ
-        dlg2.ed["unit_code"].setText("S-77")
+        # trùng MÃ PHÒNG -> CHẶN Lưu + nút mở bản ghi cũ
+        dlg2.ed["room_code"].setText("S-77")
         dlg2._run_check()
         app.processEvents()
         assert "ĐÃ TỒN TẠI" in dlg2.banner_label.text(), "Không báo được phòng đã tồn tại"
-        assert not dlg2.btn_save.isEnabled(), "Không chặn được Lưu khi trùng số căn"
+        assert not dlg2.btn_save.isEnabled(), "Không chặn được Lưu khi trùng mã phòng"
         assert dlg2._dup_id, "Không nắm được id bản ghi trùng"
         dlg2.deleteLater()
 

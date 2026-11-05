@@ -938,7 +938,7 @@ class RoomPage(QWidget):
         def esc(v):
             return escape(str(v)) if v not in (None, "") else "—"
         info_rows = [
-            ("Số căn", r.get("unit_code")),
+            ("Mã phòng", r.get("room_code")),
             ("Tầng", r.get("floor")),
             ("Sức chứa", r.get("capacity")),
             ("Đánh giá", r.get("rating")),

@@ -635,8 +635,12 @@ class Database:
     def find_room_identity(self, building_id: str, unit_key: str) -> Optional[Dict]:
         if not unit_key:
             return None
+        # Mã phòng là khoá duy nhất từ khi bỏ ô Số căn; dữ liệu CŨ dùng unit_key
+        # tạo từ số căn -> khớp CẢ HAI cột để không lọt trùng xuyên chế độ cũ/mới
         row = self.query_one(
-            "SELECT * FROM rooms WHERE building_id=? AND unit_key=? AND deleted=0", (building_id, unit_key)
+            "SELECT * FROM rooms WHERE building_id=? AND deleted=0 "
+            "AND (unit_key=? OR (room_code_key<>'' AND room_code_key=?)) LIMIT 1",
+            (building_id, unit_key, unit_key),
         )
         return row_to_dict(row)
 

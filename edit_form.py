@@ -1042,8 +1042,15 @@ class RoomEditForm(QDialog):
             v = int(p.get(k) or 0)
             if v and isinstance(self.ed[k], QLineEdit):
                 self.ed[k].setText(str(v))
-        if p.get("ev_support") and isinstance(self.ed.get("ev_support"), QComboBox):
-            self.ed["ev_support"].setCurrentIndex(1)  # Có
+        # nhóm 5: combo 3 TRẠNG THÁI (xe điện / khách nước ngoài):
+        # 1 = Có (index 1) · 0 = Không (index 2) · None/không có khoá = Chưa biết (giữ nguyên)
+        for k in ("ev_support", "foreign_guest"):
+            w = self.ed.get(k)
+            if isinstance(w, QComboBox):
+                if p.get(k) in (1, True):
+                    w.setCurrentIndex(1)   # Có
+                elif p.get(k) in (0, False):
+                    w.setCurrentIndex(2)   # Không
         # ghi chú: lưu nguyên văn tin gốc để tham khảo (nếu ô ghi chú đang trống)
         note_src = str(p.get("notes") or "").strip()
         if note_src:

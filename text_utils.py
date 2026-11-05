@@ -246,12 +246,12 @@ def parse_yes_no(value) -> Optional[bool]:
 
 def parse_pet_policy(value) -> str:
     """Chuẩn hoá chính sách thú cưng về: 'Cho nuôi' / 'Không nuôi' / ''."""
-    s = norm(value)
+    s = norm(value)                      # s đã BỎ DẤU -> so sánh không dấu
     if not s:
         return ""
-    if s.startswith("khong") or "ko nuôi" in s:
+    if s.startswith("khong") or "ko nuoi" in s:
         return "Không nuôi"
-    if "cho nuôi" in s or "nhan pet" in s or "nuoi duoc" in s or s.startswith("co"):
+    if "cho nuoi" in s or "nhan pet" in s or "nuoi duoc" in s or s.startswith("co"):
         return "Cho nuôi"
     return str(value).strip()
 
@@ -740,7 +740,7 @@ def parse_listing_text(text: str) -> dict:
         out["ev_support"] = 0
     elif re.search(r"\bxe dien\b|\bsac xe\b|\bco sac\b", n):
         out["ev_support"] = 1
-    if re.search(r"\bkhong (pet|nuoi)\b|\bcam pet\b", n):
+    if re.search(r"\bkhong (pet|nuoi|thu cung)\b|\bcam pet\b|\bthu cung\s*:?\s*khong\b", n):
         out["pet_policy"] = "Không nuôi"
     elif re.search(r"\bthu cung\b", n):
         tc = re.search(r"\bthu cung\s*:?\s*(khong|co)\b", n)
@@ -748,6 +748,12 @@ def parse_listing_text(text: str) -> dict:
                              else "Cho nuôi (chó/mèo)")
     elif re.search(r"\b(pet|meo|cho nuoi|nuoi)\b", n):
         out["pet_policy"] = "Cho nuôi (chó/mèo)"
+
+    # ---- khách nước ngoài (ưu tiên PHỦ ĐỊNH: 'không nhận khách nước ngoài' -> 0)
+    if re.search(r"\bkhong (?:nhan |cho )?khach nuoc ngoai\b|\bkhach nuoc ngoai\s*:?\s*khong\b", n):
+        out["foreign_guest"] = 0
+    elif re.search(r"\b(?:nhan|cho)\s+khach nuoc ngoai\b|\bkhach nuoc ngoai\b", n):
+        out["foreign_guest"] = 1
 
     # ---- phường / quận (trên text toàn bộ, dùng cho dòng địa chỉ)
     ward_m = _WARD_RE.search(n)

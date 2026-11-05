@@ -81,8 +81,10 @@ def autofill_from_text(text: str) -> Dict[str, Any]:
         out["price"] = int(p["price"])
     if p.get("deposit"):
         out["deposit"] = int(p["deposit"])
-    if p.get("ev_support"):
-        out["ev_support"] = 1
+    # nhóm 5: 0 = Không cũng phải truyền (không chỉ 1 = Có)
+    for k in ("ev_support", "foreign_guest"):
+        if p.get(k) in (0, 1):
+            out[k] = int(p[k])
     if p.get("pet_policy"):
         out["pet_policy"] = p["pet_policy"]
     # tin NHIỀU PHÒNG (vd 'Mã 501_502: 6.400.000') -> chỉ gợi ý, không tự tạo
@@ -458,9 +460,10 @@ class QuickAddDialog(QDialog):
             "notes": g("notes"),
             "status": "new",
             # trường parse được nhưng form rút gọn không có ô: cọc, phí DV,
-            # giờ giấc, tiện ích (autofill đã ghi vào _extra_fields)
+            # giờ giấc, tiện ích + nhóm 5 (xe điện / thú cưng / nước ngoài)
             **{k: v for k, v in self._extra_fields.items() if k in
-               ("deposit", "service_fee", "access_hours", "amenities")},
+               ("deposit", "service_fee", "access_hours", "amenities",
+                "ev_support", "pet_policy", "foreign_guest")},
         }
 
     def _set_banner(self, color: str, head: str, body: str = ""):

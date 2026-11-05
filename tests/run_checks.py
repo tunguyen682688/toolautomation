@@ -978,6 +978,52 @@ def main():
     check("29. Số nhà giữa dòng (tin 1 dòng) + sort trang Phòng theo đường -> số nhà",
           t29_address_midline_and_sort)
 
+    # ---------------------------------------------------------------- nhóm 5: xe điện / thú cưng / nước ngoài
+    def t30_policy_tri_state():
+        """Nhóm 5: Xe điện + Thú cưng + Khách nước ngoài tách được CẢ 'Không' (0),
+        không chỉ 'Có'; autofill Tạo nhanh + form Sửa truyền đủ vào DB."""
+        m11 = ("DIA CHI: 129/1/10 Hoang Van Thu,P.Phu Nhuan - QPN\n"
+               "Quy mo: Tong 08 phong/ Dang trong: 08 phong\nDang phong: Studio\n"
+               "Dien: 4k\nNuoc: 100k/nguoi\nDich vu: 200k/can\nGui xe: free 1 , xe 2 100k\n"
+               "Thu Cung: co\nNhan khach nuoc ngoai: co\nMay giat: giac xay chung\n"
+               "Xe dien:  khong\nCoc 1 thang - 1,5 thang\nCoc toi thiem 3tr giu phong 3 ngay.")
+        p = tu.parse_listing_text(m11)
+        assert_true(p["ev_support"] == 0, f"'Xe dien: khong' phải = 0, got {p['ev_support']!r}")
+        assert_true(p["pet_policy"] == "Cho nuôi (chó/mèo)",
+                    f"'Thu Cung: co' sai: {p['pet_policy']!r}")
+        assert_true(p["foreign_guest"] == 1,
+                    f"'Nhan khach nuoc ngoai: co' phải = 1, got {p['foreign_guest']!r}")
+
+        # phủ định trước: 'không nhận khách nước ngoài' -> 0 (không phải 1 vì có từ 'khách...')
+        p0 = tu.parse_listing_text("Cho thuê phòng 12 Trần Nguyên Hãn giá 5tr, "
+                                   "không nhận khách nước ngoài, không thú cưng")
+        assert_true(p0["foreign_guest"] == 0 and p0["pet_policy"] == "Không nuôi",
+                    f"phủ định sai: {p0['foreign_guest']!r}/{p0['pet_policy']!r}")
+
+        # autofill Tạo nhanh: nhóm 5 vào payload (0 = Không cũng phải giữ)
+        import quick_add as qa
+        f = qa.autofill_from_text(m11)
+        assert_true(f.get("ev_support") == 0 and f.get("foreign_guest") == 1
+                    and f.get("pet_policy") == "Cho nuôi (chó/mèo)",
+                    f"autofill thiếu nhóm 5: { {k: f.get(k) for k in ('ev_support', 'pet_policy', 'foreign_guest')} }")
+        pl = {"house_number": "129", "street": "Đường Test T30", "ward": "P.9",
+              "district": "Q. Phú Nhuận", "unit_code": "T30-01", "room_type": "Studio",
+              "ev_support": f["ev_support"], "foreign_guest": f["foreign_guest"],
+              "pet_policy": f["pet_policy"]}
+        r = mgr.add_room(pl, actor="tester")
+        got = db.get_room(r["id"])
+        assert_true(got["ev_support"] == 0 and got["foreign_guest"] == 1
+                    and got["pet_policy"] == "Cho nuôi (chó/mèo)",
+                    f"Mất nhóm 5 khi lưu DB: {got['ev_support']!r}/{got['foreign_guest']!r}/{got['pet_policy']!r}")
+        # pet_ok phải suy ra được từ 'Cho nuôi (chó/mèo)' (bug cũ: so sánh có dấu trên chuỗi bỏ dấu)
+        assert_true(got["pet_ok"] == 1,
+                    f"pet_ok sai khi pet_policy='Cho nuôi (chó/mèo)': {got['pet_ok']!r}")
+        print(f"    -> m11: xe điện=0 · thú cưng='{got['pet_policy']}' (pet_ok={got['pet_ok']}) "
+              f"· nước ngoài=1 (lưu DB đúng)")
+
+    check("30. Nhóm 5 chính sách: xe điện/thú cưng/nước ngoài - Có lẫn Không + DB",
+          t30_policy_tri_state)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)

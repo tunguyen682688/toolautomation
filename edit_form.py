@@ -1213,7 +1213,14 @@ class RoomEditForm(QDialog):
         actor = self.mgr.settings.get("user_name") or "Admin"
         try:
             if self.is_new:
-                room = self.mgr.add_room(payload, actor=actor)
+                # trùng THẬT (room_exists) -> chặn + mở bản ghi cũ;
+                # cảnh báo MỜI (room_code_cross / similar) -> banner cam đã hiện
+                # trước đó -> vẫn cho lưu (force) như Tạo nhanh
+                res = self.mgr.check_new(payload)
+                if res.room_exists:
+                    self._show_duplicate(DuplicateError(res))
+                    return
+                room = self.mgr.add_room(payload, actor=actor, force=bool(res.has_warn))
             else:
                 rid = self.room["id"]
                 changes = {k: v for k, v in payload.items() if k != "status_text"}

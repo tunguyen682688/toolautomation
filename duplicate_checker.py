@@ -5,8 +5,8 @@ Các lớp kiểm tra khi THÊM phòng mới:
   L1. Địa chỉ đã tồn tại chưa?           -> building_exists (info / tự liên kết)
   L2. Tòa nhà có trong danh mục chưa?     -> building_exists
   L3. Căn hộ (tòa nhà + số căn) tồn tại? -> room_exists (BLOCK)
-  L4. (ĐÃ BỎ) Trùng mã phòng ở tòa khác -> mã phòng chỉ cần unique TRONG CÙNG TÒA;
-      2 tòa khác nhau cùng có mã A1 là hợp lệ -> không còn cảnh báo code_duplicate.
+  L4. Trùng mã phòng ở TÒA KHÁC          -> room_code_cross (WARN - mã chỉ unique
+      trong cùng tòa, 2 tòa cùng mã là hợp lệ NHƯNG phải biết để kiểm tra kỹ)
   L5. Bản ghi tương tự về địa chỉ + căn? -> similar (WARN - "nghi ngờ trùng do khác cách viết")
 
 Kết quả luôn kèm: thông tin phòng hiện có, trạng thái hiện tại, thời gian cập nhật gần nhất
@@ -184,9 +184,34 @@ class DuplicateChecker:
                              f"cập nhật: {existing.get('updated_at')}"),
                     room_id=existing["id"], building_id=building["id"], room=existing,
                 ))
-            # KHÔNG kiểm tra L4 "trùng mã phòng ở tòa khác": mã phòng chỉ cần
-            # unique TRONG CÙNG TÒA (khóa building_id + unit_key ở L3).
-            # 2 tòa khác nhau cùng có mã A1 là hoàn toàn hợp lệ.
+            # L4 "trùng mã phòng ở tòa khác" xử lý RIÊNG bên dưới ở mức WARN
+            # (mã phòng vẫn chỉ cần unique TRONG CÙNG TÒA - khóa building_id + unit_key).
+        # L4 - TRÙNG MÃ PHÒNG Ở TÒA KHÁC (WARN, KHÔNG chặn): mã phòng chỉ cần unique
+        # TRONG CÙNG TÒA - 2 tòa khác nhau cùng mã là hợp lệ, nhưng người nhập phải
+        # BIẾT mã đó đang dùng ở tòa nào để kiểm tra kỹ trước khi lưu.
+        code_key = tu.room_code_key(payload.get("room_code") or "")
+        if code_key and any(c.isdigit() for c in str(payload.get("room_code") or "")):
+            others = self.db.search_rooms_sql(
+                "r.deleted=0 AND r.room_code_key=? AND r.building_id<>? AND r.id<>?",
+                (code_key, (building or {}).get("id") or "", exclude_id or ""))
+            if others:
+                seen_b, parts = set(), []
+                for o in others:
+                    if o.get("building_id") in seen_b:
+                        continue           # 1 dòng/tòa là đủ (tòa nhiều phòng cùng mã)
+                    seen_b.add(o.get("building_id"))
+                    parts.append(f"{o.get('room_code') or o.get('unit_code')} - "
+                                 f"{o.get('address')} ({RoomStatusLabel(o.get('status'))})")
+                    if len(parts) >= 3:
+                        break
+                res.findings.append(Finding(
+                    kind="room_code_cross", severity="warn",
+                    message=(f"Mã phòng '{payload.get('room_code')}' đã có ở "
+                             f"{len(seen_b)} tòa khác: " + " · ".join(parts)
+                             + (" …" if len(others) > len(parts) else "")
+                             + " -> kiểm tra kỹ có phải phòng này không (vẫn được lưu)."),
+                ))
+
         # L3b - THIẾU số căn + mã phòng không hợp lệ: không có khoá duy nhất ->
         # chặn theo "cùng tòa + trùng văn bản mã phòng" (tránh nhập trùng vô hạn)
         if building and not ident:

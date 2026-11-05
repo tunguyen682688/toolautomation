@@ -137,7 +137,8 @@ def main():
         raise AssertionError("Thêm trùng thành công -> CHỐNG TRÙNG THẤT BẠI")
 
     def t05_same_code_other_address():
-        """Mã phòng chỉ unique THEO TÒA -> trùng mã ở tòa khác là HỢP LỆ, không cảnh báo."""
+        """Mã phòng chỉ unique THEO TÒA -> trùng mã ở tòa khác HỢP LỆ (không block),
+        chỉ có CẢNH BÁO MỜI room_code_cross để biết mã đang dùng ở tòa nào."""
         p = dict(NEW_A)
         p.update({"house_number": "888", "street": "Nguyễn Văn B", "unit_code": "B-02"})
         try:
@@ -148,12 +149,14 @@ def main():
                         "Vẫn chặn vì trùng mã phòng ở tòa khác")
             r = mgr.add_room(p, actor="tester", force=True)
         assert_true(bool(r and r.get("id")), "Không thêm được phòng cùng mã ở tòa khác")
-        # check lại: không còn sinh finding code_duplicate
         res = mgr.check_new(dict(p), exclude_id=r["id"])
         assert_true(not any(f.kind == "code_duplicate" for f in res.findings),
                     "Vẫn sinh cảnh báo code_duplicate")
         assert_true(not res.has_block, "Tòa khác cùng mã phòng lại bị BLOCK")
-        print(f"    -> cùng mã '{p['room_code']}' ở 2 tòa = hợp lệ, không cảnh báo")
+        # cảnh báo MỜI room_code_cross phải có (biết mã đang dùng ở tòa nào)
+        assert_true(any(f.kind == "room_code_cross" for f in res.findings),
+                    "Thiếu cảnh báo mềm room_code_cross khi mã trùng tòa khác")
+        print(f"    -> cùng mã '{p['room_code']}' ở 2 tòa = hợp lệ + cảnh báo mềm, không block")
 
     def t06_new_room_into_existing_building():
         """4. Thêm phòng mới vào tòa đã tồn tại -> tự liên kết đúng tòa (không tạo tòa mới)."""
@@ -175,7 +178,7 @@ def main():
     check("2. Thêm một phòng mới (thủ công) thành công", t03_add_new_room)
     check("2b. Thêm đúng phòng đó lần nữa -> phát hiện trùng (block)", t04_add_same_room_again)
     check("4. Thêm phòng mới vào tòa đã tồn tại -> tự liên kết đúng tòa", t06_new_room_into_existing_building)
-    check("5b. Trùng mã phòng ở tòa khác -> HỢP LỆ, không cảnh báo", t05_same_code_other_address)
+    check("5b. Trùng mã phòng ở tòa khác -> HỢP LỆ, chỉ cảnh báo mềm", t05_same_code_other_address)
 
     def t07_concurrent_add_only_one_valid():
         """5. Hai 'người' cùng thêm 1 căn hộ cùng lúc -> chỉ 1 bản ghi hợp lệ."""
@@ -1023,6 +1026,42 @@ def main():
 
     check("30. Nhóm 5 chính sách: xe điện/thú cưng/nước ngoài - Có lẫn Không + DB",
           t30_policy_tri_state)
+
+    # ---------------------------------------------------------------- cảnh báo mã phòng trùng tòa khác
+    def t31_cross_building_code_warn():
+        """Mã phòng trùng ở TÒA KHÁC -> cảnh báo MỜI (liệt kê tòa đang dùng), không chặn;
+        trùng trong CÙNG tòa vẫn BLOCK như cũ."""
+        pa = {"house_number": "11", "street": "Đường Cross Alpha", "ward": "P.1",
+              "district": "Q.1", "room_code": "X-9", "room_type": "Studio"}
+        pb = {"house_number": "22", "street": "Đường Cross Beta", "ward": "P.2",
+              "district": "Q.2", "room_code": "X-9", "room_type": "Studio"}
+        ra = mgr.add_room(pa, actor="tester")
+        try:                                   # X-9 đã có ở tòa A -> add_room raise warn
+            mgr.add_room(pb, actor="tester")
+        except DuplicateError:
+            mgr.add_room(pb, actor="tester", force=True)   # người dùng vẫn lưu
+        # tòa C nhập mã 'X-9' đã dùng ở 2 tòa -> WARN liệt kê, KHÔNG block
+        pc = {"house_number": "33", "street": "Đường Cross Gamma", "ward": "P.3",
+              "district": "Q.3", "room_code": "X-9", "room_type": "Studio"}
+        res = mgr.check_new(dict(pc))
+        cross = [f for f in res.findings if f.kind == "room_code_cross"]
+        assert_true(res.has_warn and cross and not res.has_block,
+                    f"Thiếu cảnh báo mềm: {[f.kind for f in res.findings]}")
+        assert_true("X-9" in cross[0].message
+                    and "11 Đường Cross Alpha" in cross[0].message
+                    and "22 Đường Cross Beta" in cross[0].message,
+                    f"Thông báo thiếu mã/địa chỉ tòa: {cross[0].message}")
+        # cảnh báo mềm KHÔNG chặn: người dùng vẫn lưu (UI bấm Enter = force=True)
+        r = mgr.add_room(dict(pc), actor="tester", force=True)
+        assert_true(bool(r and r.get("id")), "Cảnh báo mềm làm chặn lưu")
+        # CÙNG tòa trùng mã -> vẫn BLOCK (nhập lại X-9 ở tòa A, không loại bản gốc)
+        res2 = mgr.check_new(dict(pa))
+        assert_true(res2.room_exists and res2.has_block,
+                    "Trùng mã trong CÙNG tòa không bị block")
+        print(f"    -> 'X-9' ở 3 tòa: warn '{cross[0].message[:70]}...' | cùng tòa vẫn block")
+
+    check("31. Mã phòng trùng tòa khác: cảnh báo mềm liệt kê tòa, không chặn",
+          t31_cross_building_code_warn)
 
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)

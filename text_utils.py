@@ -333,6 +333,14 @@ _KNOWN_DISTRICTS = [
 ]
 _KNOWN_DISTRICT_ABBR = {"bt": "Q. Bình Thạnh", "gv": "Q. Gò Vấp", "pn": "Q. Phú Nhuận"}
 
+# PHƯỜNG theo TÊN (không có chữ "Phường" phía trước) hay gặp trong tin Zalo:
+# (chuỗi norm -> tên phường hiển thị, quận norm) - vd m3/m7: "...XVNT, Thạnh Mỹ Tay"
+# CHỈ lấy tên ĐỘC NHẤT (không trùng phường ở quận khác) để khỏi nhận nhầm
+_KNOWN_WARDS = (
+    ("thanh my tay", "Thạnh Mỹ Tây", "binh thanh"),
+    ("thanh my loi", "Thạnh Mỹ Lợi", "thu duc"),
+)
+
 _ROOM_TYPE_PATTERNS = [
     ("can ho dich vu", "Căn hộ dịch vụ"),
     ("penthouse", "Penthouse"),
@@ -470,6 +478,10 @@ def _parse_fee_hours_amenities(lines: list, n: str) -> dict:
         for line in lines:
             low = str(line).lower()
             low_na = strip_accents(low)          # BỎ DẤU nhưng GIỮ NGUYÊN độ dài -> map vị trí về low
+            # dòng DANH SÁCH TIỆN ÍCH ('Tien nghi: Gio giac tu do, Khoa cong van tay...')
+            # KHÔNG phải dòng giờ giấc -> bỏ qua (tiện ích đã được gom riêng)
+            if re.match(r"\s*(?:tien nghi|noi that|tien ich|chinh sach)\b", low_na):
+                continue
             pos, kw = -1, ""
             for pat in pats:
                 if pat in low_na:
@@ -577,7 +589,8 @@ def _extract_address(lines) -> tuple:
                     cns = norm(chunk)
                     cns_bare = re.sub(r"^(?:q|quan)\.?\s+", "", cns)     # 'q. binh thanh' -> 'binh thanh'
                     if (_WARD_RAW_RE.search(chunk) or _WARD_WORD_RE.match(chunk)
-                            or any(cns_bare.startswith(p) for p, _ in _KNOWN_DISTRICTS)):
+                            or any(cns_bare.startswith(p) for p, _ in _KNOWN_DISTRICTS)
+                            or any(cns.startswith(wn) for wn, _, _ in _KNOWN_WARDS)):
                         cut = min(cut, pos)
                         break
                 pos += len(chunk) + 1
@@ -613,6 +626,16 @@ def _extract_address(lines) -> tuple:
             wn = _WARD_NAME_RE.search(rest)
             if wn:
                 ward_name = collapse_space(wn.group(1)).strip(" ,.;:-")
+            if not ward_name:
+                # phường viết KHÔNG có chữ "Phường": '..., Thạnh Mỹ Tay' -> P. Thạnh Mỹ Tây
+                for chunk in rest.split(","):
+                    cns = norm(chunk)
+                    for wnorm, wdisp, _dw in _KNOWN_WARDS:
+                        if cns.startswith(wnorm):
+                            ward_name = wdisp
+                            break
+                    if ward_name:
+                        break
             best = (score, hnum, street, ward_name)
     return best
 
@@ -718,7 +741,7 @@ def parse_listing_text(text: str) -> dict:
             out["room_type"] = label
             break
 
-    # ---- sức chứa: "2 người 2 xe" trước, sau đó "ở tối đa: 4 người"
+    # ---- sức chứa: "2 người 2 xe" -> "ở tối đa: 4 người" -> khoảng "2-3 người"
     cm = _CAPACITY_RE.search(n)
     if cm:
         out["capacity"] = f"{cm.group(1)} Ng/{cm.group(2)} Xe"
@@ -726,6 +749,10 @@ def parse_listing_text(text: str) -> dict:
         tm = re.search(r"toi da\s*:?\s*(\d{1,2})\s*(?:nguoi|ng)\b", n)
         if tm:
             out["capacity"] = f"{tm.group(1)} Ng"
+        else:
+            rm = re.search(r"\b(\d{1,2})\s*-\s*(\d{1,2})\s*(?:nguoi|ng)\b", n)
+            if rm:
+                out["capacity"] = f"{rm.group(1)}-{rm.group(2)} Ng"
 
     # ---- diện tích / tầng
     am = _AREA_RE.search(n)

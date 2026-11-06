@@ -20,7 +20,7 @@ mà không bao giờ ảnh hưởng dữ liệu thật (xem mục 1.3).
 | [2. Cấu hình Google API](#2-cấu-hình-google-api-chi-tiết-có-thể-làm-sau) | 4 bước, các sheet quản lý, giới hạn quota |
 | [3. Phím tắt](#3-phím-tắt) | Bàn phím tắt |
 | [4. Dữ liệu mẫu kiểm thử](#4-dữ-liệu-mẫu-kiểm-thử) | 2 file Excel mẫu |
-| [5. Bộ kiểm thử](#5-bộ-kiểm-thử-chạy-được-ngay-không-cần-mạng) | 31 backend + 5 phân biệt 3 trạng thái + 12 giao diện + selftest + 10 tình huống bắt buộc |
+| [5. Bộ kiểm thử](#5-bộ-kiểm-thử-chạy-được-ngay-không-cần-mạng) | 32 backend + 5 phân biệt 3 trạng thái + 12 giao diện + selftest + 10 tình huống bắt buộc |
 | [6. Nguyên tắc quan trọng](#6-nguyên-tắc-quan-trọng-của-phần-mềm) | Offline-first, chống trùng, đồng bộ an toàn |
 | [7. Xử lý sự cố](#7-xử-lý-sự-cố-thường-gặp) | Bảng lỗi thường gặp |
 | [8. Build bản Windows (.exe)](#8-build-bản-windows-exe-cho-người-dùng-cuối) | Đóng gói, chạy trên máy khác, selftest |
@@ -132,7 +132,7 @@ toolautomation/
 ├── start.bat             ← tạo venv + cài thư viện + chạy (hỗ trợ --env)
 ├── build.bat             ← build bản Windows (.exe) + selftest
 ├── KhoPhongCanHo.spec    ← cấu hình PyInstaller
-└── tests/                ← bộ kiểm thử (31 + 5 + 12 tình huống)
+└── tests/                ← bộ kiểm thử (32 + 5 + 12 tình huống)
 ```
 
 ---
@@ -220,12 +220,12 @@ Lần chạy đầu nếu DB trống, chương trình sẽ **đề nghị nhập
 
 ## 5. Bộ kiểm thử (chạy được ngay, không cần mạng)
 
-### 5.1. Kiểm thử backend — 31 tình huống
+### 5.1. Kiểm thử backend — 32 tình huống
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'     # console Windows cp1252 -> tránh lỗi hiển thị UTF-8
 python tests\run_checks.py
-# kỳ vọng: KẾT QUẢ: 31/31 PASS
+# kỳ vọng: KẾT QUẢ: 32/32 PASS
 ```
 
 ### 5.2. Kiểm thử phân biệt 3 trạng thái (Chưa biết / Có / Không) — 5 tình huống
@@ -396,6 +396,7 @@ chi tiết ghi vào `data\<env>\selftest_result.txt`.
 
 | Ngày | Thay đổi |
 |---|---|
+| 2026-11-06 | **🏠 NHẬN DIỆN DÒNG TIN ZALO HOÀN THIỆN HƠN (rà lại 11 mẫu thật).** ① **Phường theo TÊN không cần chữ "Phường"**: "92/62/7 Xô Viết Nghệ Tĩnh, **Thạnh Mỹ Tay**" / "758/16 XVNT, Thanh My Tay" → ra đủ **P. Thạnh Mỹ Tây + Q. Bình Thạnh** (bảng `_KNOWN_WARDS` — chỉ tên phường ĐỘC NHẤT để khỏi nhận nhầm). ② **Dòng "Tien nghi: Gio giac tu do, Khoa cong van tay..." không còn làm ô nhiễm ô Giờ ra vào** (nhận diện dòng danh sách tiện ích `tien nghi/noi that/tien ich/chinh sach` → bỏ qua khi quét giờ; tiện ích vẫn gom đủ riêng). ③ **Sức chứa dạng khoảng**: "So nguoi o: 2-3 nguoi" → **2-3 Ng** (trước đây chỉ nhận "N người" / "N người N xe"). Test: backend **32/32** (t32 mới), UI **12/12**, tri-state **5/5**, selftest **OK**. |
 | 2026-11-06 | **⚠️ CẢNH BÁO MỀM KHI MÃ PHÒNG TRÙNG Ở TÒA KHÁC (L4 mới - `room_code_cross`).** Mã phòng vẫn chỉ unique TRONG CÙNG TÒA (2 tòa cùng mã A1 hợp lệ) nhưng khi nhập mã đã có ở tòa khác → banner cam **⚠ NGHI NGỜ TRÙNG DỮ LIỆU** liệt kê tối đa 3 tòa đang dùng mã đó (mã - địa chỉ - trạng thái) → **vẫn cho Lưu** (Tạo nhanh: Enter = force; form Sửa: Lưu & thêm tiếp force — trước đây popup chặn cả warn-only). Trùng trong CÙNG tòa vẫn **BLOCK** như cũ. Fix kèm: form Sửa khi THÊM mới chỉ popup chặn khi trùng THẬT (`room_exists`), warn-only lưu thẳng (force) — nhất quán với Tạo nhanh. Test: backend **31/31** (t31 mới + 5b cập nhật), UI **12/12**, tri-state **5/5**, selftest **OK**. |
 | 2026-11-06 | **🗑 LOẠI BỎ SỐ CĂN KHỎI UI — MÃ PHÒNG LÀ KHOÁ CHỐNG TRÙNG DUY NHẤT.** Bỏ ô **Số căn** ở cả **Tạo nhanh từ Zalo** + **form Sửa phòng** (nhóm 2 Nhận diện), bỏ cột **Số Căn** khỏi bảng trang Phòng + panel chi tiết; **Mã phòng** (có chữ số) trở thành khoá bắt buộc — banner/nút Lưu yêu cầu rõ ràng. DB/Excel/Google Sheets **giữ nguyên cột `unit_code`** (tương thích file cũ + sync); chống trùng khớp **CẢ HAI khoá** (`find_room_identity`: `unit_key` của dữ liệu cũ tạo từ số căn ∨ `room_code_key`) → bản ghi cũ "S-01" vẫn chặn được nhập lại "S-01"/"P-313". Dữ liệu cũ hiện số căn vẫn đọc được qua Excel export/import. Test: backend **30/30**, UI **12/12** (thêm assert ô Số căn đã bị loại), tri-state **5/5**, selftest **OK**. |
 | 2026-11-05 | **📋 NHÓM 5 (XE ĐIỂN / THÚ CƯNG / NƯỚC NGOÀI) TÁCH ĐƯỢC CẢ "KHÔNG" + FIX pet_ok.** ① **Parser thêm `foreign_guest`**: "Nhận khách nước ngoài: có" → 1, "không nhận khách nước ngoài" → 0 (phủ định ưu tiên trước — trước đây không tách, luôn "Chưa biết"). ② **Phủ định thú cưng đủ**: "không thú cưng" / "thú cưng: không" → "Không nuôi" (trước đây chỉ nhận "không pet/cấm pet" → "không thú cưng" bị thành "Cho nuôi"). ③ **Form Sửa nhóm 5**: combo 3 trạng thái set đủ — 1 = Có (index 1), **0 = Không (index 2)**, không có = giữ "Chưa biết" (trước đây chỉ set Có cho xe điện, nước ngoài không bao giờ được chọn). ④ **Tạo nhanh**: autofill + payload truyền đủ `ev_support` / `pet_policy` / `foreign_guest` (0 = Không cũng giữ — trước đây 0 bị bỏ). ⑤ **FIX nền cũ `parse_pet_policy`**: so sánh chuỗi CÓ dấu ("cho nuôi") trên chuỗi đã `norm()` bỏ dấu → không bao giờ khớp → `pet_ok=0` sai cho "Cho nuôi (chó/mèo)"; sửa so sánh không dấu → `pet_ok=1` đúng. Test: backend **30/30** (t30 mới: m11 Có/Không + phủ định + DB roundtrip + pet_ok), UI **12/12**, tri-state **5/5**, selftest **OK**. |

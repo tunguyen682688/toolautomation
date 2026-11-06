@@ -1063,6 +1063,46 @@ def main():
     check("31. Mã phòng trùng tòa khác: cảnh báo mềm liệt kê tòa, không chặn",
           t31_cross_building_code_warn)
 
+    # ---------------------------------------------------------------- hoàn thiện nhận diện dòng tin Zalo
+    def t32_line_detection_refined():
+        """Phường theo TÊN không cần chữ 'Phường' ('..., Thạnh Mỹ Tay') · dòng
+        'Tien nghi: ...' không bị coi là giờ giấc · sức chứa khoảng '2-3 người'."""
+        # m3/m7: phường viết thường không tiền tố -> vẫn ra đủ phường + quận
+        m3 = ("CẬP NHẬT DỰ ÁN: 92/62/7 Xô Viết Nghệ Tĩnh, Thạnh Mỹ Tay\n"
+              "- Cac loai phi:\nDien : 4000/ so\nNuoc : 100k/ nguoi\nDich vu : 150k/ phong\n"
+              "Hoa hong 40/80 coc 1 thang gia 4tr5")
+        p = tu.parse_listing_text(m3)
+        assert_true(p["ward"] == "Phường Thạnh Mỹ Tây" and p["district"] == "Q. Bình Thạnh"
+                    and p["street"] == "Xô Viết Nghệ Tĩnh" and p["house_number"] == "92/62/7",
+                    f"m3 sai: {p['ward']!r}/{p['district']!r}/{p['street']!r}")
+        m7 = "Gia: 4.8 trieu, giam con 4.5 trieu\n758/16 XVNT, Thanh My Tay"
+        p = tu.parse_listing_text(m7)
+        assert_true(p["ward"] == "Phường Thạnh Mỹ Tây" and p["house_number"] == "758/16"
+                    and p["street"] == "Xô Viết Nghệ Tĩnh" and p["price"] == 4_500_000,
+                    f"m7 sai: {p['ward']!r}/{p['house_number']!r}/{p['price']}")
+
+        # m4: dòng 'Tien nghi: Gio giac tu do, Khoa cong van tay...' là danh sách
+        # tiện ích -> KHÔNG làm ô Giờ ra vào bị ô nhiễm (tiện ích vẫn gom đủ)
+        m4 = ("DIA CHI:  347/6/27 CHU VAN AN, P12, BINH THANH\n"
+              "Tien nghi: Gio giac tu do, Khoa cong van tay, Bao ve, May giat chung, Thang may\n"
+              "Phi dich vu\nDien: 3,8k/kwh\nNuoc: 100k/nguoi\nDich vu: 200k/phong")
+        p = tu.parse_listing_text(m4)
+        assert_true(p["access_hours"] == "",
+                    f"Ô giờ bị dòng tiện ích làm ô nhiễm: {p['access_hours']!r}")
+        na = tu.norm(p["amenities"])
+        assert_true("khoa van tay" in na and "may giat chung" in na and "bao ve" in na,
+                    f"Mất tiện ích: {p['amenities']!r}")
+
+        # m11: sức chứa dạng khoảng '2-3 nguoi' -> '2-3 Ng'
+        p = tu.parse_listing_text("So nguoi o va so xe: 2-3 nguoi , xe thuong luong tu chiec thu 3")
+        assert_true(p["capacity"] == "2-3 Ng",
+                    f"Sức chứa khoảng sai: {p['capacity']!r}")
+        print(f"    -> m3/m7 ward='Phường Thạnh Mỹ Tây' | m4 giờ='' (dòng tiện ích) "
+              f"| capacity khoảng='2-3 Ng'")
+
+    check("32. Nhận diện dòng hoàn thiện: phường theo tên + giờ không ô nhiễm + sức chứa khoảng",
+          t32_line_detection_refined)
+
     # ---------------------------------------------------------------- kết luận
     settings.set("google_enabled", old_g, save=False)
     settings.set("db_path", old_db, save=False)
